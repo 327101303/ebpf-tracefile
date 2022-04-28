@@ -1,7 +1,7 @@
 package main
 
 import (
-	"ctrace/ctrace/command"
+	"ctrace/command"
 	"fmt"
 	"log"
 	"os"
@@ -44,3 +44,4 @@ func isCapable() bool {
 
 	return c.Get(capability.EFFECTIVE, capability.CAP_SYS_ADMIN)
 }
+

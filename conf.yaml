@@ -1,0 +1,6 @@
+output-format: json
+detect-original-syscall: false
+perf-buffer-size: 64
+show-all-syscalls: false
+output-path: ""
+capture: exec

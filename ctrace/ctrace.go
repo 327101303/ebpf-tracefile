@@ -22,13 +22,13 @@ type CtraceConfig struct {
 	DetectOriginalSyscall bool
 	ShowExecEnv           bool
 	OutputFormat          string
-	//PerfBufferSize        int
-	OutputPath   string
-	CaptureWrite bool
-	CaptureExec  bool
-	CaptureMem   bool
-	EventsFile   *os.File
-	ErrorsFile   *os.File
+	PerfBufferSize        int
+	OutputPath            string
+	CaptureWrite          bool
+	CaptureExec           bool
+	CaptureMem            bool
+	EventsFile            *os.File
+	ErrorsFile            *os.File
 }
 
 type counter int32
@@ -75,9 +75,6 @@ func (tc CtraceConfig) Validate() error {
 	if tc.EventsToTrace == nil {
 		return fmt.Errorf("eventsToTrace is nil")
 	}
-	if tc.OutputFormat != "table" && tc.OutputFormat != "json" && tc.OutputFormat != "gob" {
-		return fmt.Errorf("unrecognized output format: %s", tc.OutputFormat)
-	}
 	for _, e := range tc.EventsToTrace {
 		event, ok := EventsIDToEvent[e]
 		if !ok {
@@ -86,11 +83,7 @@ func (tc CtraceConfig) Validate() error {
 		if event.Name == "reserved" {
 			return fmt.Errorf("event is not implemented: %s", event.Name)
 		}
-
 	}
-	// if (tc.PerfBufferSize & (tc.PerfBufferSize - 1)) != 0 {
-	// 	return fmt.Errorf("invalid perf buffer size - must be a power of 2")
-	// }
 	return nil
 }
 
@@ -375,7 +368,6 @@ func (t *Ctrace) processEvent(ctx *context, args []interface{}) error {
 			}
 		}
 	}
-
 	return nil
 }
 

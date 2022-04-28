@@ -657,10 +657,8 @@ static __always_inline int init_context(struct context_t *context, struct task_s
         bpf_probe_read_str(&context->uts_name, TASK_COMM_LEN, uts_name);
         //context->cgroup_id = bpf_get_current_cgroup_id();
     }
-
     context->ts = bpf_ktime_get_ns();
     context->argc = 0;
-
     return 0;
 }
 
