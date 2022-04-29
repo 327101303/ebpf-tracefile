@@ -29,7 +29,7 @@ func GetConfigFromYml() (*config, error) {
 	if err != nil {
 		return nil, err
 	}
-	confFilePath := filepath.Join(filepath.Dir(exePath), "./ctrace/conf.yaml")
+	confFilePath := filepath.Join(exePath, "./conf.yaml")
 	_, err = os.Stat(confFilePath)
 	if !os.IsNotExist(err) {
 		yamlFile, err := ioutil.ReadFile(confFilePath)
