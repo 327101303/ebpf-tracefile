@@ -17,6 +17,7 @@ type config struct {
 	PerfBufferSize        int    `yaml:"perf-buffer-size"`
 	ShowAllSyscalls       bool   `yaml:"show-all-syscalls"`
 	OutputPath            string `yaml:"output-path"`
+	ShowExecEnv           bool   `yaml:"show-exec-env"`
 	//"Capture artifacts that were written, executed or found to be suspicious.
 	//captured artifacts will appear in the 'output-path' directory.
 	//possible values: 'write'/'exec'/'mem'/'all'.
@@ -53,8 +54,7 @@ func UpdateConfig(key string, newvalue []byte, conf *config) error {
 	setDefault := newvalue == nil || len(newvalue) == 0
 	if key == "output-format" {
 		if setDefault {
-			conf.OutputFormat = ""
-			return nil
+			conf.OutputFormat = "table"
 		}
 		output_format := string(newvalue)
 		if output_format != "table" && output_format != "json" && output_format != "gob" {
@@ -84,6 +84,16 @@ func UpdateConfig(key string, newvalue []byte, conf *config) error {
 			}
 			conf.PerfBufferSize = int(perf_buffer_size)
 		}
+	} else if key == "show-exec-env" {
+		if setDefault {
+			conf.ShowExecEnv = false
+		} else {
+			show_exec_env, err := strconv.ParseBool(string(newvalue))
+			if err != nil {
+				return fmt.Errorf("invalid detect  original syscall value: %v", err)
+			}
+			conf.ShowExecEnv = show_exec_env
+		}
 	} else if key == "show-all-syscalls" {
 		if setDefault {
 			conf.DetectOriginalSyscall = false
@@ -106,7 +116,6 @@ func UpdateConfig(key string, newvalue []byte, conf *config) error {
 	} else if key == "capture" {
 		if setDefault {
 			conf.Capture = ""
-			return nil
 		} else {
 			capture := strings.Split(string(newvalue), "|")
 			for _, cap := range capture {
@@ -135,7 +144,7 @@ func WriteBackConf(newConf *config) error {
 	if err != nil {
 		return err
 	}
-	confFilePath := filepath.Join(filepath.Dir(exePath), "./ctrace/conf.yaml")
+	confFilePath := filepath.Join(exePath, "./conf.yaml")
 	_, err = os.Stat(confFilePath)
 	if !os.IsNotExist(err) {
 		err = ioutil.WriteFile(confFilePath, out, 0777)

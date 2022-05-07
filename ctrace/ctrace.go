@@ -311,8 +311,7 @@ func (t *Ctrace) initBPF(ebpfProgram string) error {
 	eventsBPFTable := bpf.NewTable(t.bpfModule.TableId("events"), t.bpfModule)
 	t.eventsChannel = make(chan []byte, 1000)
 	t.lostEvChannel = make(chan uint64)
-	t.eventsPerfMap, err = bpf.InitPerfMap(eventsBPFTable, t.eventsChannel, t.lostEvChannel)
-	//t.eventsPerfMap, err = bpf.InitPerfMapWithPageCnt(eventsBPFTable, t.eventsChannel, t.lostEvChannel, t.config.PerfBufferSize)
+	t.eventsPerfMap, err = bpf.InitPerfMapWithPageCnt(eventsBPFTable, t.eventsChannel, t.lostEvChannel, t.config.PerfBufferSize)
 	if err != nil {
 		return fmt.Errorf("error initializing events perf map: %v", err)
 	}

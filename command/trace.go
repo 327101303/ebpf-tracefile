@@ -121,6 +121,9 @@ var listSubCmd = &cli.Command{
 		},
 	},
 	Action: func(ctx *cli.Context) error {
+		if ctx.NumFlags() == 0 {
+			return fmt.Errorf("ls need to use with flag")
+		}
 		if ctx.Bool("container") {
 			c := ctrace.InitContainers()
 			if err := c.Populate(); err != nil {

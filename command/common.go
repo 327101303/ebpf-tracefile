@@ -20,6 +20,9 @@ var ErrPrintAndExit = errors.New("print and exit")
 
 // global action
 var GlobalAction = func(ctx *cli.Context) error {
-	fmt.Println("welcome to ctrace")
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		return fmt.Errorf("ctrace needs command to run")
+	}
+	cli.ShowAppHelp(ctx)
 	return nil
 }
