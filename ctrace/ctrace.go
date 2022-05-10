@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync/atomic"
+	"syscall"
 
 	bpf "github.com/iovisor/gobpf/bcc"
 )
@@ -66,7 +67,7 @@ type context struct {
 	Uts_name [16]byte
 	Event_id int32
 	Argc     uint8
-	Argv     [128]byte
+	_        [3]byte
 	Retval   int64
 }
 
@@ -96,7 +97,7 @@ func getEBPFProgram() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ebpfFilePath := filepath.Join(filepath.Dir(exePath), "./ctrace/ctrace/bpf/ctrace.bpf.c")
+	ebpfFilePath := filepath.Join(exePath, "./ctrace/bpf/ctrace.bpf.c")
 	_, err = os.Stat(ebpfFilePath)
 	if !os.IsNotExist(err) {
 		p, err := ioutil.ReadFile(ebpfFilePath)
@@ -212,85 +213,68 @@ func (t *Ctrace) initBPF(ebpfProgram string) error {
 		}
 	}
 
-	//todo: attach probes
-	//sysPrefix := bpf.GetSyscallPrefix()
-	// for _, e := range eventsToTraceFinal {
-	// 	event, ok := EventsIDToEvent[e]
-	// 	if !ok {
-	// 		continue
-	// 	}
-	// 	for _, probe := range event.Probes {
-	// 		if probe.attach == sysCall {
-	// 			kp, err := t.bpfModule.LoadKprobe(fmt.Sprintf("syscall__%s", probe.fn))
-	// 			if err != nil {
-	// 				return fmt.Errorf("error loading kprobe %s: %v", probe.fn, err)
-	// 			}
-	// 			err = t.bpfModule.AttachKprobe(sysPrefix+probe.event, kp, -1)
-	// 			if err != nil {
-	// 				return fmt.Errorf("error attaching kprobe %s: %v", probe.event, err)
-	// 			}
-	// 			kp, err = t.bpfModule.LoadKprobe(fmt.Sprintf("trace_ret_%s", probe.fn))
-	// 			if err != nil {
-	// 				return fmt.Errorf("error loading kprobe %s: %v", probe.fn, err)
-	// 			}
-	// 			err = t.bpfModule.AttachKretprobe(sysPrefix+probe.event, kp, -1)
-	// 			if err != nil {
-	// 				return fmt.Errorf("error attaching kretprobe %s: %v", probe.event, err)
-	// 			}
-	// 			continue
-	// 		}
-	// 		if probe.attach == kprobe {
-	// 			kp, err := t.bpfModule.LoadKprobe(probe.fn)
-	// 			if err != nil {
-	// 				return fmt.Errorf("error loading kprobe %s: %v", probe.fn, err)
-	// 			}
-	// 			err = t.bpfModule.AttachKprobe(probe.event, kp, -1)
-	// 			if err != nil {
-	// 				return fmt.Errorf("error attaching kprobe %s: %v", probe.event, err)
-	// 			}
-	// 			continue
-	// 		}
-	// 		if probe.attach == kretprobe {
-	// 			kp, err := t.bpfModule.LoadKprobe(probe.fn)
-	// 			if err != nil {
-	// 				return fmt.Errorf("error loading kprobe %s: %v", probe.fn, err)
-	// 			}
-	// 			err = t.bpfModule.AttachKretprobe(probe.event, kp, -1)
-	// 			if err != nil {
-	// 				return fmt.Errorf("error attaching kretprobe %s: %v", probe.event, err)
-	// 			}
-	// 			continue
-	// 		}
-	// 		if probe.attach == tracepoint {
-	// 			tp, err := t.bpfModule.LoadTracepoint(probe.fn)
-	// 			if err != nil {
-	// 				return fmt.Errorf("error loading tracepoint %s: %v", probe.fn, err)
-	// 			}
-	// 			err = t.bpfModule.AttachTracepoint(probe.event, tp)
-	// 			if err != nil {
-	// 				return fmt.Errorf("error attaching tracepoint %s: %v", probe.event, err)
-	// 			}
-	// 			continue
-	// 		}
-	// 	}
-	// }
-
-	// this is for test
-	fnName := bpf.GetSyscallFnName("execve")
-
-	kretprobe, err := t.bpfModule.LoadKprobe("do_ret_sys_execve")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load do_ret_sys_execve: %s\n", err)
-		os.Exit(1)
+	sysPrefix := bpf.GetSyscallPrefix()
+	for _, e := range eventsToTraceFinal {
+		event, ok := EventsIDToEvent[e]
+		if !ok {
+			continue
+		}
+		for _, probe := range event.Probes {
+			if probe.attach == sysCall {
+				kp, err := t.bpfModule.LoadKprobe(fmt.Sprintf("syscall__%s", probe.fn))
+				if err != nil {
+					return fmt.Errorf("error loading kprobe %s: %v", probe.fn, err)
+				}
+				err = t.bpfModule.AttachKprobe(sysPrefix+probe.event, kp, -1)
+				if err != nil {
+					return fmt.Errorf("error attaching kprobe %s: %v", probe.event, err)
+				}
+				kp, err = t.bpfModule.LoadKprobe(fmt.Sprintf("trace_ret_%s", probe.fn))
+				if err != nil {
+					return fmt.Errorf("error loading kprobe %s: %v", probe.fn, err)
+				}
+				err = t.bpfModule.AttachKretprobe(sysPrefix+probe.event, kp, -1)
+				if err != nil {
+					return fmt.Errorf("error attaching kretprobe %s: %v", probe.event, err)
+				}
+				continue
+			}
+			if probe.attach == kprobe {
+				kp, err := t.bpfModule.LoadKprobe(probe.fn)
+				if err != nil {
+					return fmt.Errorf("error loading kprobe %s: %v", probe.fn, err)
+				}
+				err = t.bpfModule.AttachKprobe(probe.event, kp, -1)
+				if err != nil {
+					return fmt.Errorf("error attaching kprobe %s: %v", probe.event, err)
+				}
+				continue
+			}
+			if probe.attach == kretprobe {
+				kp, err := t.bpfModule.LoadKprobe(probe.fn)
+				if err != nil {
+					return fmt.Errorf("error loading kprobe %s: %v", probe.fn, err)
+				}
+				err = t.bpfModule.AttachKretprobe(probe.event, kp, -1)
+				if err != nil {
+					return fmt.Errorf("error attaching kretprobe %s: %v", probe.event, err)
+				}
+				continue
+			}
+			if probe.attach == tracepoint {
+				tp, err := t.bpfModule.LoadTracepoint(probe.fn)
+				if err != nil {
+					return fmt.Errorf("error loading tracepoint %s: %v", probe.fn, err)
+				}
+				err = t.bpfModule.AttachTracepoint(probe.event, tp)
+				if err != nil {
+					return fmt.Errorf("error attaching tracepoint %s: %v", probe.event, err)
+				}
+				continue
+			}
+		}
 	}
-
-	// passing -1 for maxActive signifies to use the default
-	// according to the kernel kretprobes documentation
-	if err := t.bpfModule.AttachKretprobe(fnName, kretprobe, -1); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to attach do_ret_sys_execve: %s\n", err)
-		os.Exit(1)
-	}
-
+	
 	//init ctrace configuration
 	bpfConfig := bpf.NewTable(t.bpfModule.TableId("config_map"), t.bpfModule)
 
@@ -351,21 +335,77 @@ func boolToUInt32(b bool) uint32 {
 func (t Ctrace) shouldPrintEvent(e int32) bool {
 	// if we got a trace for a non-essential event, it means the user explicitly requested it (using `-e`), or the user doesn't care (trace all by default). In both cases it's ok to print.
 	// for essential events we need to check if the user actually wanted this event
-	if print, isEssential := essentialEvents[e]; isEssential {
-		return print
-	}
+	// if print, isEssential := essentialEvents[e]; isEssential {
+	// 	return print
+	// }
 	return true
 }
 
-func (t *Ctrace) processEvent(ctx *context, args []interface{}) error {
+func (t *Ctrace) processEvent(ctx *context, argv []interface{}) error {
 	eventName := EventsIDToEvent[ctx.Event_id].Name
 	//show event name for raw_syscalls
 	if eventName == "raw_syscalls" {
-		if id, isInt32 := args[0].(int32); isInt32 {
+		if id, isInt32 := argv[0].(int32); isInt32 {
 			if event, isKnown := EventsIDToEvent[id]; isKnown {
-				args[0] = event.Probes[0].event
+				argv[0] = event.Probes[0].event
 			}
 		}
+	}
+	//capture executed files
+	if t.config.CaptureExec && (eventName == "security_bprm_check") {
+		var err error
+
+		sourceFilePath, ok := argv[0].(string)
+		if !ok {
+			return fmt.Errorf("error parsing security_bprm_check argv")
+		}
+		sourceFileStat, err := os.Stat(sourceFilePath)
+		if err != nil {
+			return err
+		}
+		sourceCtime := sourceFileStat.Sys().(*syscall.Stat_t).Ctim.Nano()
+		lastCtime, ok := t.capturedFiles[sourceFilePath]
+		if ok && lastCtime == sourceCtime {
+			return nil
+		}
+		t.capturedFiles[sourceFilePath] = sourceCtime
+
+		destinationDirPath := filepath.Join(t.config.OutputPath, strconv.Itoa(int(ctx.Mnt_id)))
+		if err := os.MkdirAll(destinationDirPath, 0755); err != nil {
+			return err
+		}
+		destinationFilePath := filepath.Join(destinationDirPath, fmt.Sprintf("exec.%d.%s", ctx.Ts, filepath.Base(sourceFilePath)))
+
+		err = copyFileByPath(sourceFilePath, destinationFilePath)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func copyFileByPath(src, dst string) error {
+	sourceFileStat, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !sourceFileStat.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", src)
+	}
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	destination, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+	_, err = io.Copy(destination, source)
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -385,21 +425,22 @@ func (t *Ctrace) processEvents() {
 				t.handleError(err)
 				continue
 			}
-			// for i := 0; i < int(ctx.Argc); i++ {
-			// 	args[i], err = readArgFromBuff(dataBuff)
-			// 	if err != nil {
-			// 		t.handleError(err)
-			// 		continue
-			// 	}
-			// }
-			// err = t.processEvent(&ctx, args)
-			// if err != nil {
-			// 	t.handleError(err)
-			// 	continue
-			// }
+			argv := make([]interface{}, ctx.Argc)
+			for i := 0; i < int(ctx.Argc); i++ {
+				argv[i], err = readArgFromBuff(dataBuff)
+				if err != nil {
+					t.handleError(err)
+					continue
+				}
+			}
+			err = t.processEvent(&ctx, argv)
+			if err != nil {
+				t.handleError(err)
+				continue
+			}
 			if t.shouldPrintEvent(ctx.Event_id) {
 				t.stats.eventCounter.Increment()
-				evt, err := newEvent(ctx, nil)
+				evt, err := newEvent(ctx, argv)
 				if err != nil {
 					t.handleError(err)
 					continue

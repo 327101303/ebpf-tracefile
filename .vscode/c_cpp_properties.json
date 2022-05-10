@@ -4,8 +4,9 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/usr/src/linux-headers-5.13.0-40/include/**",
-                "/usr/src/linux-headers-5.13.0-40-generic/include/**"
+                "/usr/include/**",
+                "/usr/src/linux-headers-5.11.0-49/include/**",
+                "/usr/src/linux-headers-5.11.0-49-generic/include/**"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/clang",

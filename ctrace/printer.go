@@ -54,12 +54,12 @@ type Event struct {
 	HostName        string  `json:"hostName"`
 	EventID         int     `json:"eventId,string"`
 	EventName       string  `json:"eventName"`
-	Argv            string  `json:"argv"`
 	Argc            int     `json:"argc"`
 	ReturnValue     int     `json:"returnValue"`
+	Argv            []interface{} `json:"argv"`
 }
 
-func newEvent(ctx context, args []interface{}) (Event, error) {
+func newEvent(ctx context, argv []interface{}) (Event, error) {
 	e := Event{
 		Timestamp:       float64(ctx.Ts) / 1000000.0,
 		ProcessID:       int(ctx.Pid),
@@ -73,8 +73,8 @@ func newEvent(ctx context, args []interface{}) (Event, error) {
 		EventID:         int(ctx.Event_id),
 		EventName:       EventsIDToEvent[int32(ctx.Event_id)].Name,
 		Argc:            int(ctx.Argc),
-		Argv:            string(bytes.TrimRight(ctx.Argv[:], string(0))),
 		ReturnValue:     int(ctx.Retval),
+		Argv:            argv,
 	}
 	return e, nil
 }
@@ -88,7 +88,7 @@ type tableEventPrinter struct {
 func (p tableEventPrinter) Init() {}
 
 func (p tableEventPrinter) Preamble() {
-	fmt.Fprintf(p.out, "%-14s %-16s %-12s %-12s %-6s %-16s %-16s %-6s %-6s %-6s %-12s %s", "TIME(s)", "UTS_NAME", "MNT_NS", "PID_NS", "UID", "EVENT", "COMM", "PID", "TID", "PPID", "RET", "ARGS")
+	fmt.Fprintf(p.out, "%-14s %-16s %-12s %-12s %-6s %-16s %-16s %-6s %-6s %-6s %-12s %s", "TIME(s)", "UTS_NAME", "MNT_NS", "PID_NS", "UID", "EVENT", "COMM", "PID", "TID", "PPID", "RET", "ARGV")
 	fmt.Fprintln(p.out)
 }
 
