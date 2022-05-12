@@ -8,7 +8,7 @@ make: *** No rule to make target 'all'.  Stop.
 # This is free software: you are free to change and redistribute it.
 # There is NO WARRANTY, to the extent permitted by law.
 
-# Make data base, printed on Sat May  7 08:50:48 2022
+# Make data base, printed on Thu May 12 01:39:37 2022
 
 # Variables
 
@@ -18,6 +18,8 @@ PROVIDE_FULLSTACK_ACTION = true
 JAVA_HOME = /usr/local/java/jdk-17.0.1
 # environment
 GDK_BACKEND = x11
+# makefile (from 'Makefile', line 3)
+OUTPUT = dist
 # environment
 LC_ALL = C
 # makefile (from 'Makefile', line 1)
@@ -35,9 +37,11 @@ UUID = 054ea912-c442-4f7a-9244-d3f8326d4edd
 # environment
 KAFKA_HOME = /opt/kafka/kafka-2.8.1
 # environment
-VSCODE_IPC_HOOK_EXTHOST = /run/user/1000/vscode-ipc-cf497bfa-d11d-4991-b3d0-9eb8a33949b2.sock
+VSCODE_IPC_HOOK_EXTHOST = /run/user/1000/vscode-ipc-97eaf7bd-f0a3-47af-8b93-10888800b7c7.sock
 # environment
 VSCODE_CWD = /home/taosupr
+# makefile (from 'Makefile', line 2)
+BPFFILE = ctrace/bpf
 # default
 MAKE_COMMAND := make
 # environment
@@ -51,7 +55,7 @@ GOPATH = /home/taosupr/goProject
 # environment
 SNAP_INSTANCE_NAME = code
 # environment
-GDK_PIXBUF_MODULEDIR = /snap/code/95/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders
+GDK_PIXBUF_MODULEDIR = /snap/code/96/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders
 # environment
 VSCODE_HANDLES_UNCAUGHT_ERRORS = true
 # default
@@ -69,11 +73,13 @@ VSCODE_LOG_STACK = false
 # automatic
 %F = $(notdir $%)
 # environment
-VSCODE_CODE_CACHE_PATH = /home/taosupr/.config/Code/CachedData/57fd6d0195bb9b9d1b49f6da5db789060795de47
+VSCODE_CODE_CACHE_PATH = /home/taosupr/.config/Code/CachedData/da15b6fd3ef856477bf6f4fb29ba1b7af717770d
+# makefile (from 'Makefile', line 5)
+VMLINUXH = ${BPFFILE}/vmlinux.h
 # environment
 LANG = C
 # environment
-XAUTHORITY = /run/user/1000/.mutter-Xwaylandauth.IFPTL1
+XAUTHORITY = /run/user/1000/.mutter-Xwaylandauth.BI7XL1
 # default
 .LOADED := 
 # default
@@ -87,7 +93,7 @@ VSCODE_PIPE_LOGGING = true
 # environment
 UTM_SOURCE = vscode
 # environment
-APPLICATION_INSIGHTS_NO_DIAGNOSTIC_CHANNEL = true
+APPLICATION_INSIGHTS_NO_DIAGNOSTIC_CHANNEL = 1
 # environment
 LESSOPEN = | /usr/bin/lesspipe %s
 # automatic
@@ -104,8 +110,6 @@ WAYLAND_DISPLAY = wayland-0
 XDG_CONFIG_DIRS = /etc/xdg/xdg-ubuntu:/etc/xdg
 # automatic
 +D = $(patsubst %/,%,$(dir $+))
-# makefile (from 'Makefile', line 2)
-ebpfProgramBase64 = $(shell base64 -w 0 ctrace/bpf/ctrace.bpf.c)
 # environment
 XDG_SESSION_DESKTOP = ubuntu
 # makefile (from 'Makefile', line 1)
@@ -119,19 +123,17 @@ SNAP_REEXEC =
 # environment
 VSCODE_VERBOSE_LOGGING = true
 # environment
-VSCODE_PID = 3142
+VSCODE_PID = 2762
 # environment
 XDG_SESSION_TYPE = wayland
 # automatic
 ?D = $(patsubst %/,%,$(dir $?))
-# makefile (from 'Makefile', line 34)
-goreleaserFlags = --skip-publish --snapshot
 # environment
 BAMF_DESKTOP_FILE_HINT = /var/lib/snapd/desktop/applications/code_code.desktop
 # environment
 CONDA_PYTHON_EXE = /home/taosupr/anaconda3/bin/python
 # environment
-SESSION_MANAGER = local/ubuntu:@/tmp/.ICE-unix/2055,unix/ubuntu:/tmp/.ICE-unix/2055
+SESSION_MANAGER = local/ubuntu:@/tmp/.ICE-unix/2085,unix/ubuntu:/tmp/.ICE-unix/2085
 # automatic
 *F = $(notdir $*)
 # environment
@@ -169,7 +171,7 @@ MAKE = $(MAKE_COMMAND)
 # environment
 SNAP_COOKIE = wr-4YEU-GM7TnfMTGQueuLsEMTMZfu7HghQt0NnEs6SxjT0NQHRz
 # environment
-PATH = /usr/local/go/bin:/home/taosupr/.local/bin:/home/taosupr/anaconda3/condabin:/home/taosupr/goProject/bin:/opt/kafka/kafka-2.8.1/bin:/opt/zookeeper/zookeeper-3.6.3/bin:/opt/hadoop/sbin:/opt/hadoop/bin:/usr/local/java/jdk-17.0.1/bin:/usr/local/java/jdk-17.0.1/jre/bin:/home/taosupr/.local/bin:/home/taosupr/goProject/bin:/opt/kafka/kafka-2.8.1/bin:/opt/zookeeper/zookeeper-3.6.3/bin:/opt/hadoop/sbin:/opt/hadoop/bin:/usr/local/java/jdk-17.0.1/bin:/usr/local/java/jdk-17.0.1/jre/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin
+PATH = /usr/local/go/bin:/home/taosupr/.local/bin:/usr/share/bcc/tools:/usr/share/bcc/examples:/home/taosupr/anaconda3/condabin:/home/taosupr/goProject/bin:/opt/kafka/kafka-2.8.1/bin:/opt/zookeeper/zookeeper-3.6.3/bin:/opt/hadoop/sbin:/opt/hadoop/bin:/usr/local/java/jdk-17.0.1/bin:/usr/local/java/jdk-17.0.1/jre/bin:/home/taosupr/.local/bin:/home/taosupr/goProject/bin:/opt/kafka/kafka-2.8.1/bin:/opt/zookeeper/zookeeper-3.6.3/bin:/opt/hadoop/sbin:/opt/hadoop/bin:/usr/local/java/jdk-17.0.1/bin:/usr/local/java/jdk-17.0.1/jre/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin
 # default
 MAKEFILES := 
 # automatic
@@ -177,13 +179,13 @@ MAKEFILES :=
 # environment
 SNAP_USER_COMMON = /home/taosupr/snap/code/common
 # environment
-SNAP = /snap/code/95
+SNAP = /snap/code/96
 # environment
 GOROOT = /usr/local/go
 # environment
-INVOCATION_ID = b0825fe0167e4b849bb00d6ef7ca8c3e
+INVOCATION_ID = 1a4e140600274b668eab9fe9023b8516
 # environment
-SNAP_REVISION = 95
+SNAP_REVISION = 96
 # environment
 SNAP_REAL_HOME = /home/taosupr
 # environment
@@ -198,6 +200,8 @@ RECOMMENDER_API_URL = https://gw.api.openshift.io//api/v2
 LESSCLOSE = /usr/bin/lesspipe %s %s
 # automatic
 ?F = $(notdir $?)
+# makefile (from 'Makefile', line 6)
+BTFFILE = /sys/kernel/btf/vmlinux
 # environment
 ZOOKEEPER_HOME = /opt/zookeeper/zookeeper-3.6.3
 # environment
@@ -221,7 +225,7 @@ SNAP_ARCH = amd64
 # makefile
 .DEFAULT_GOAL := build
 # environment
-SYSTEMD_EXEC_PID = 2082
+SYSTEMD_EXEC_PID = 2107
 # environment
 DISPLAY = :0
 # environment
@@ -230,30 +234,30 @@ USER = taosupr
 GTK_MODULES = gail:atk-bridge
 # default
 MAKE_VERSION := 4.3
-# makefile (from 'Makefile', line 27)
-imageName = ctrace
 # 'override' directive
 .SHELLSTATUS := 0
 # environment
 DISABLE_WAYLAND = 1
 # environment
-SNAP_DATA = /var/snap/code/95
+SNAP_DATA = /var/snap/code/96
 # environment
 SNAP_CONTEXT = wr-4YEU-GM7TnfMTGQueuLsEMTMZfu7HghQt0NnEs6SxjT0NQHRz
 # environment
-MANAGERPID = 1961
+MANAGERPID = 1990
 # environment
-GIO_LAUNCHED_DESKTOP_FILE_PID = 3095
+GIO_LAUNCHED_DESKTOP_FILE_PID = 2684
 # environment
-_ = /snap/code/95/usr/share/code/code
+_ = /snap/code/96/usr/share/code/code
 # environment
 XDG_RUNTIME_DIR = /run/user/1000
+# makefile (from 'Makefile', line 12)
+CFLAGS = -g -O2 -c -Wall -fpie -Wno-unused-variable -Wno-unused-function
 # environment
 GDK_PIXBUF_MODULE_FILE = /home/taosupr/snap/code/common/.cache/gdk-pixbuf-loaders.cache
 # environment
 _CE_M = 
 # environment
-JOURNAL_STREAM = 8:54505
+JOURNAL_STREAM = 8:55918
 # environment
 GOMODCACHE = /home/taosupr/goProject/pkg/mod
 # environment
@@ -262,6 +266,8 @@ GOLANG_EXECUTABLE = go
 XDG_SESSION_CLASS = user
 # environment
 VSCODE_AMD_ENTRYPOINT = vs/workbench/api/node/extensionHostProcess
+# makefile (from 'Makefile', line 11)
+CGO_LDFLAGS = "-lelf -lz -lbpf"
 # environment
 HOME = /home/taosupr
 # environment
@@ -269,11 +275,15 @@ QT_IM_MODULE = ibus
 # environment
 ELECTRON_RUN_AS_NODE = 1
 # environment
-VSCODE_IPC_HOOK = /run/user/1000/vscode-8f547f26-1.67.0-main.sock
+VSCODE_IPC_HOOK = /run/user/1000/vscode-8f547f26-1.67.1-main.sock
 # environment
 SNAP_NAME = code
 # environment
-GSETTINGS_SCHEMA_DIR = /snap/code/95/usr/share/glib-2.0/schemas
+GSETTINGS_SCHEMA_DIR = /snap/code/96/usr/share/glib-2.0/schemas
+# makefile (from 'Makefile', line 8)
+DBGVMLINUX = /usr/lib/debug/boot/vmlinux-$(shell uname -r)
+# makefile (from 'Makefile', line 7)
+BPFTOOL = $(shell which bpftool || /bin/false)
 # environment
 IM_CONFIG_PHASE = 1
 # environment
@@ -284,7 +294,7 @@ GOPROXY = https://goproxy.cn
 # automatic
 <F = $(notdir $<)
 # environment
-SNAP_VERSION = 57fd6d01
+SNAP_VERSION = da15b6fd
 # default
 SUFFIXES := 
 # environment
@@ -293,12 +303,14 @@ VSCODE_CLI = 1
 TELEMETRY_ID = f9da3183-b6cd-4dc8-a98c-151852caaec5
 # environment
 ELECTRON_NO_ATTACH_CONSOLE = 1
+# makefile (from 'Makefile', line 10)
+CGO_CFLAGS = "-I /usr/include/bpf"
 # environment
 SNAP_COMMON = /var/snap/code/common
 # default
 .FEATURES := target-specific order-only second-expansion else-if shortest-stem undefine oneshell nocomment grouped-target extra-prereqs archives jobserver output-sync check-symlink load
 # environment
-SNAP_USER_DATA = /home/taosupr/snap/code/95
+SNAP_USER_DATA = /home/taosupr/snap/code/96
 # environment
 XDG_MENU_PREFIX = gnome-
 # environment
@@ -312,7 +324,7 @@ SNAP_LIBRARY_PATH = /var/lib/snapd/lib/gl:/var/lib/snapd/lib/gl32:/var/lib/snapd
 # environment
 JRE_HOME = /usr/local/java/jdk-17.0.1/jre
 # variable set hash-table stats:
-# Load=149/1024=15%, Rehash=0, Collisions=9/185=5%
+# Load=155/1024=15%, Rehash=0, Collisions=8/202=4%
 
 # Pattern-specific Variable Values
 
@@ -320,7 +332,7 @@ JRE_HOME = /usr/local/java/jdk-17.0.1/jre
 
 # Directories
 
-# . (device 2051, inode 2892111): 16 files, no impossibilities.
+# . (device 2051, inode 3015020): 16 files, no impossibilities.
 
 # 16 files, no impossibilities in 1 directories.
 
@@ -330,18 +342,27 @@ JRE_HOME = /usr/local/java/jdk-17.0.1/jre
 
 # Files
 
+bpf-arm64: ctrace/bpf/ctrace.bpf.c | vmlinuxh
+#  Phony target (prerequisite of .PHONY).
+#  Implicit rule search has not been done.
+#  File does not exist.
+#  File has not been updated.
+#  recipe to execute (from 'Makefile', line 50):
+	clang $(CFLAGS) -target bpf -D__TARGET_ARCH_arm64 \
+	-o ${OUTPUT}/ctrace.bpf.o ${BPFFILE}/ctrace.bpf.c
+
+dist:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+#  recipe to execute (from 'Makefile', line 18):
+	mkdir -p $(OUTPUT)
+
 # Not a target:
 ctrace/consts.go:
 #  Implicit rule search has not been done.
 #  Modification time never checked.
 #  File has not been updated.
-
-tar/ctrace: command/common.go command/config.go command/trace.go main.go config/config.go ctrace/printer.go ctrace/argprinters.go ctrace/container.go ctrace/ctrace.go ctrace/consts.go ctrace/bpf/ctrace.bpf.c
-#  Implicit rule search has not been done.
-#  Modification time never checked.
-#  File has not been updated.
-#  recipe to execute (from 'Makefile', line 8):
-	GOOS=linux go build -v -o tar/ctrace -ldflags "-X ctrace/ctrace.ebpfProgramBase64Injected=$(ebpfProgramBase64)"
 
 # Not a target:
 main.go:
@@ -354,14 +375,6 @@ ctrace/container.go:
 #  Implicit rule search has not been done.
 #  Modification time never checked.
 #  File has not been updated.
-
-docker:
-#  Phony target (prerequisite of .PHONY).
-#  Implicit rule search has not been done.
-#  File does not exist.
-#  File has not been updated.
-#  recipe to execute (from 'Makefile', line 30):
-	docker build -t $(imageName) .
 
 # Not a target:
 ctrace/printer.go:
@@ -378,9 +391,15 @@ ctrace/bpf/ctrace.bpf.c:
 # Not a target:
 Makefile:
 #  Implicit rule search has been done.
-#  Last modified 2022-05-03 09:27:01.12207588
+#  Last modified 2022-05-12 01:35:42.398726647
 #  File has been updated.
 #  Successfully updated.
+
+# Not a target:
+bpf:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
 
 # Not a target:
 command/trace.go:
@@ -388,19 +407,52 @@ command/trace.go:
 #  Modification time never checked.
 #  File has not been updated.
 
+vmlinuxh: ctrace/bpf/vmlinux.h
+#  Phony target (prerequisite of .PHONY).
+#  Implicit rule search has not been done.
+#  File does not exist.
+#  File has not been updated.
+
 clean:
 #  Phony target (prerequisite of .PHONY).
 #  Implicit rule search has not been done.
 #  File does not exist.
 #  File has not been updated.
-#  recipe to execute (from 'Makefile', line 25):
-	rm -rf tar || true
+#  recipe to execute (from 'Makefile', line 63):
+	rm -rf ${OUTPUT}
+
+ctrace: command/common.go command/config.go command/trace.go main.go config/config.go ctrace/printer.go ctrace/external.go ctrace/consts_arm64.go ctrace/argprinters.go ctrace/container.go ctrace/ctrace.go ctrace/consts.go
+#  Phony target (prerequisite of .PHONY).
+#  Implicit rule search has not been done.
+#  File does not exist.
+#  File has not been updated.
+#  recipe to execute (from 'Makefile', line 56):
+	GOOS=linux cc=gcc CGO_CFLAGS=$(CGO_CFLAGS) CGO_LDFLAGS=$(CGO_LDFLAGS) \
+	go build -o ${OUTPUT}/ctrace
 
 # Not a target:
 .DEFAULT:
 #  Implicit rule search has not been done.
 #  Modification time never checked.
 #  File has not been updated.
+
+ctrace/bpf/vmlinux.h: dist
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+#  recipe to execute (from 'Makefile', line 29):
+	@if [ -f $(DBGVMLINUX) ]; then \
+		echo "INFO: found dbg kernel, generating $(VMLINUXH) from $(DBGVMLINUX)"; \
+		$(BPFTOOL) btf dump file $(DBGVMLINUX) format c > $(VMLINUXH); \
+	fi
+	@if [ ! -f $(BTFFILE) ] && [ ! -f $(DBGVMLINUX) ]; then \
+		echo "ERROR: kernel does not seem to support BTF"; \
+		exit 1; \
+	fi
+	@if [ ! -f $(VMLINUXH) ]; then \
+		echo "INFO: generating $(VMLINUXH) from $(BTFFILE)"; \
+		$(BPFTOOL) btf dump file $(BTFFILE) format c > $(VMLINUXH); \
+	fi
 
 # Not a target:
 all:
@@ -409,19 +461,17 @@ all:
 #  File does not exist.
 #  File has not been updated.
 
-build: tar/ctrace
+build: bpf ctrace
 #  Phony target (prerequisite of .PHONY).
 #  Implicit rule search has not been done.
 #  File does not exist.
 #  File has not been updated.
 
-test:
-#  Phony target (prerequisite of .PHONY).
+# Not a target:
+ctrace/consts_arm64.go:
 #  Implicit rule search has not been done.
-#  File does not exist.
+#  Modification time never checked.
 #  File has not been updated.
-#  recipe to execute (from 'Makefile', line 21):
-	go test -v ./...
 
 # Not a target:
 config/config.go:
@@ -447,15 +497,7 @@ ctrace/argprinters.go:
 #  Modification time never checked.
 #  File has not been updated.
 
-release:
-#  Phony target (prerequisite of .PHONY).
-#  Implicit rule search has not been done.
-#  File does not exist.
-#  File has not been updated.
-#  recipe to execute (from 'Makefile', line 39):
-	EBPFPROGRAM_BASE64=$(ebpfProgramBase64) goreleaser release --rm-dist $(goreleaserFlags)
-
-.PHONY: build build-docker test clean docker release
+.PHONY: build vmlinuxh bpf-x86 bpf-arm64 ctrace clean
 #  Implicit rule search has not been done.
 #  Modification time never checked.
 #  File has not been updated.
@@ -466,31 +508,36 @@ command/config.go:
 #  Modification time never checked.
 #  File has not been updated.
 
-build-docker: clean
+# Not a target:
+ctrace/external.go:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+bpf-x86: ctrace/bpf/ctrace.bpf.c | vmlinuxh
 #  Phony target (prerequisite of .PHONY).
 #  Implicit rule search has not been done.
 #  File does not exist.
 #  File has not been updated.
-#  recipe to execute (from 'Makefile', line 12):
-	img=$$(docker build --target builder -q  .) && \
-	cnt=$$(docker create $$img) && \
-	docker cp $$cnt:/ctrace/tar - | tar -xf - ; \
-	docker rm $$cnt ; docker rmi $$img
+#  recipe to execute (from 'Makefile', line 45):
+	clang $(CFLAGS) -target bpf -D__TARGET_ARCH_x86 \
+	-o ${OUTPUT}/ctrace.bpf.o ${BPFFILE}/ctrace.bpf.c
+	
 
 # files hash-table stats:
-# Load=23/1024=2%, Rehash=0, Collisions=3/64=5%
+# Load=27/1024=3%, Rehash=0, Collisions=3/75=4%
 # VPATH Search Paths
 
 # No 'vpath' search paths.
 
 # No general ('VPATH' variable) search path.
 
-# strcache buffers: 1 (0) / strings = 39 / storage = 420 B / avg = 10 B
-# current buf: size = 8162 B / used = 420 B / count = 39 / avg = 10 B
+# strcache buffers: 1 (0) / strings = 41 / storage = 471 B / avg = 11 B
+# current buf: size = 8162 B / used = 471 B / count = 41 / avg = 11 B
 
-# strcache performance: lookups = 70 / hit rate = 44%
+# strcache performance: lookups = 79 / hit rate = 48%
 # hash-table stats:
-# Load=39/8192=0%, Rehash=0, Collisions=0/70=0%
-# Finished Make data base on Sat May  7 08:50:48 2022
+# Load=41/8192=1%, Rehash=0, Collisions=0/79=0%
+# Finished Make data base on Thu May 12 01:39:37 2022
 
  

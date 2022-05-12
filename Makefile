@@ -1,39 +1,67 @@
 SRC = $(shell find . -type f -name '*.go' ! -name '*_test.go' )
-ebpfProgramBase64 = $(shell base64 -w 0 ctrace/bpf/ctrace.bpf.c)
+BPFFILE = ctrace/bpf
+OUTPUT = dist
+
+VMLINUXH = ${BPFFILE}/vmlinux.h
+BTFFILE = /sys/kernel/btf/vmlinux
+BPFTOOL = $(shell which bpftool || /bin/false)
+DBGVMLINUX = /usr/lib/debug/boot/vmlinux-$(shell uname -r)
+
+CGO_CFLAGS="-I /usr/include/bpf"
+CGO_LDFLAGS="-lelf -lz -lbpf"
+CFLAGS =-g -O2 -c -Wall -fpie -Wno-unused-variable -Wno-unused-function
 
 .PHONY: build
-build: tar/ctrace
+build: bpf ctrace 
 
-tar/ctrace: $(SRC) ctrace/bpf/ctrace.bpf.c
-	GOOS=linux go build -v -o tar/ctrace -ldflags "-X ctrace/ctrace.ebpfProgramBase64Injected=$(ebpfProgramBase64)"
+$(OUTPUT):
+	mkdir -p $(OUTPUT)
 
-.PHONY: build-docker
-build-docker: clean
-	img=$$(docker build --target builder -q  .) && \
-	cnt=$$(docker create $$img) && \
-	docker cp $$cnt:/ctrace/tar - | tar -xf - ; \
-	docker rm $$cnt ; docker rmi $$img
+#vmlinux header file
+.PHONY: vmlinuxh
+vmlinuxh: $(VMLINUXH)
+
+$(VMLINUXH): $(OUTPUT)
+ifeq ($(wildcard $(BPFTOOL)),)
+	@echo "ERROR: could not find bpftool, install linux-tool-common and try again"
+	@exit 1
+endif
+	@if [ -f $(DBGVMLINUX) ]; then \
+		echo "INFO: found dbg kernel, generating $(VMLINUXH) from $(DBGVMLINUX)"; \
+		$(BPFTOOL) btf dump file $(DBGVMLINUX) format c > $(VMLINUXH); \
+	fi
+	@if [ ! -f $(BTFFILE) ] && [ ! -f $(DBGVMLINUX) ]; then \
+		echo "ERROR: kernel does not seem to support BTF"; \
+		exit 1; \
+	fi
+	@if [ ! -f $(VMLINUXH) ]; then \
+		echo "INFO: generating $(VMLINUXH) from $(BTFFILE)"; \
+		$(BPFTOOL) btf dump file $(BTFFILE) format c > $(VMLINUXH); \
+	fi
+
+#ctrace.bpf.o
+.PHONY: bpf-x86
+bpf-x86: ${BPFFILE}/ctrace.bpf.c | vmlinuxh
+	clang $(CFLAGS) -target bpf -D__TARGET_ARCH_x86 \
+	-o ${OUTPUT}/ctrace.bpf.o ${BPFFILE}/ctrace.bpf.c
+	
+.PHONY: bpf-arm64
+bpf-arm64: ${BPFFILE}/ctrace.bpf.c | vmlinuxh
+	clang $(CFLAGS) -target bpf -D__TARGET_ARCH_arm64 \
+	-o ${OUTPUT}/ctrace.bpf.o ${BPFFILE}/ctrace.bpf.c
+
+#ctrace
+.PHONY: ctrace
+ctrace: $(SRC)
+	GOOS=linux cc=gcc CGO_CFLAGS=$(CGO_CFLAGS) CGO_LDFLAGS=$(CGO_LDFLAGS) \
+	go build -o ${OUTPUT}/ctrace
 
 
-
-.PHONY: test
-test:
-	go test -v ./...
-
+#clean
 .PHONY: clean
 clean:
-	rm -rf tar || true
+	rm -rf ${OUTPUT}
 
-imageName ?= ctrace
-.PHONY: docker
-docker:
-	docker build -t $(imageName) .
 
-.PHONY: release
-# release by default will not publish. run with `publish=1` to publish
-goreleaserFlags = --skip-publish --snapshot
-ifdef publish
-	goreleaserFlags =
-endif
-release:
-	EBPFPROGRAM_BASE64=$(ebpfProgramBase64) goreleaser release --rm-dist $(goreleaserFlags)
+
+

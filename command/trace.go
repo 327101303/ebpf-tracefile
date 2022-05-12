@@ -52,9 +52,9 @@ var traceCmd = &cli.Command{
 			ShowExecEnv:           ctx.Bool("show-exec-env"),
 			OutputFormat:          string(conf.OutputFormat),
 			PerfBufferSize:        int(conf.PerfBufferSize),
-			OutputPath:            string(conf.OutputPath),
-			EventsFile:            os.Stdout,
-			ErrorsFile:            os.Stderr,
+			EventsPath:            string(conf.OutputPath),
+			EventsFilePath:        os.Stdout,
+			ErrorsPath:            os.Stderr,
 		}
 		capture := strings.Split(string(conf.Capture), "|")
 		for _, cap := range capture {
