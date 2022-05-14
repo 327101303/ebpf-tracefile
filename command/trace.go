@@ -4,8 +4,8 @@ import (
 	"ctrace/config"
 	"ctrace/ctrace"
 	"fmt"
-	"os"
-	"strings"
+	"log"
+	"strconv"
 
 	"github.com/urfave/cli/v2"
 )
@@ -25,20 +25,21 @@ var traceCmd = &cli.Command{
 			Value: nil,
 			Usage: "exclude an event from being traced. use this flag multiple times to choose multiple events to exclude",
 		},
-		&cli.BoolFlag{
-			Name:  "show-exec-env",
-			Value: false,
-			Usage: "when tracing execve/execveat, show environment variables",
-		},
 	},
+
 	Subcommands: []*cli.Command{
 		listSubCmd,
 	},
+
 	Action: func(ctx *cli.Context) error {
 		if ctx.IsSet("event") && ctx.IsSet("exclude-event") {
 			return fmt.Errorf("'event' and 'exclude-event' can't be used in parallel")
 		}
-		events, err := prepareEventsToTrace(ctx.StringSlice("event"), ctx.StringSlice("exclude-event"))
+		eventsNameToID := make(map[string]int32, len(ctrace.EventsIDToEvent))
+		for _, event := range ctrace.EventsIDToEvent {
+			eventsNameToID[event.Name] = event.ID
+		}
+		events, err := prepareEventsToTrace(ctx.StringSlice("event"), ctx.StringSlice("exclude-event"), eventsNameToID)
 		if err != nil {
 			return err
 		}
@@ -47,31 +48,13 @@ var traceCmd = &cli.Command{
 			return err
 		}
 		cfg := ctrace.CtraceConfig{
-			EventsToTrace:         events,
-			DetectOriginalSyscall: bool(conf.DetectOriginalSyscall),
-			ShowExecEnv:           ctx.Bool("show-exec-env"),
-			OutputFormat:          string(conf.OutputFormat),
-			PerfBufferSize:        int(conf.PerfBufferSize),
-			OutputPath:            string(conf.OutputPath),
-			EventsFile:            os.Stdout,
-			ErrorsFile:            os.Stderr,
+			EventsToTrace:  events,
+			OutputFormat:   string(conf.OutputFormat),
+			PerfBufferSize: int(conf.PerfBufferSize),
+			EventsPath:     string(conf.EventsPath),
+			ErrorsPath:     string(conf.ErrorsPath),
 		}
-		capture := strings.Split(string(conf.Capture), "|")
-		for _, cap := range capture {
-			if cap == "write" {
-				cfg.CaptureWrite = true
-			} else if cap == "exec" {
-				cfg.CaptureExec = true
-			} else if cap == "mem" {
-				cfg.CaptureMem = true
-			} else if cap == "all" {
-				cfg.CaptureWrite = true
-				cfg.CaptureExec = true
-				cfg.CaptureMem = true
-			} else {
-				return fmt.Errorf("invalid capture option: %s", cap)
-			}
-		}
+		log.Println("ctrace config loaded")
 		t, err := ctrace.New(cfg)
 		if err != nil {
 			return fmt.Errorf("error creating Ctrace: %v", err)
@@ -80,31 +63,32 @@ var traceCmd = &cli.Command{
 	},
 }
 
-func prepareEventsToTrace(eventsToTrace []string, excludeEvents []string) ([]int32, error) {
+func prepareEventsToTrace(eventsToTrace []string, excludeEvents []string, eventsNameToID map[string]int32) ([]int32, error) {
 	var res []int32
+	isExcluded := make(map[int32]bool)
+
 	if eventsToTrace == nil {
 		for _, name := range excludeEvents {
-			id, ok := ctrace.EventsNameToID[name]
+			id, ok := eventsNameToID[name]
 			if !ok {
 				return nil, fmt.Errorf("invalid event to exclude: %s", name)
 			}
-			event := ctrace.EventsIDToEvent[id]
-			event.EnabledByDefault = false
-			ctrace.EventsIDToEvent[id] = event
+			isExcluded[id] = true
 		}
 		res = make([]int32, 0, len(ctrace.EventsIDToEvent))
 		for _, event := range ctrace.EventsIDToEvent {
-			if event.EnabledByDefault {
+			if !isExcluded[event.ID] {
 				res = append(res, event.ID)
 			}
 		}
 	} else {
-		res = make([]int32, 0, len(eventsToTrace))
+		res = make([]int32, 0, len(ctrace.EventsIDToEvent))
 		for _, name := range eventsToTrace {
-			id, ok := ctrace.EventsNameToID[name]
+			id, ok := eventsNameToID[name]
 			if !ok {
 				return nil, fmt.Errorf("invalid event to trace: %s", name)
 			}
+			log.Println("user set event " + name + " id " + strconv.FormatInt(int64(id), 10))
 			res = append(res, id)
 		}
 	}

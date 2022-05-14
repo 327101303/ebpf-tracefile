@@ -6,23 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	yaml "gopkg.in/yaml.v2"
 )
 
 type config struct {
-	OutputFormat          string `yaml:"output-format"`
-	DetectOriginalSyscall bool   `yaml:"detect-original-syscall"`
-	PerfBufferSize        int    `yaml:"perf-buffer-size"`
-	ShowAllSyscalls       bool   `yaml:"show-all-syscalls"`
-	OutputPath            string `yaml:"output-path"`
-	ShowExecEnv           bool   `yaml:"show-exec-env"`
-	//"Capture artifacts that were written, executed or found to be suspicious.
-	//captured artifacts will appear in the 'output-path' directory.
-	//possible values: 'write'/'exec'/'mem'/'all'.
-	//use this flag multiple times to choose multiple Capture options",
-	Capture string `yaml:"capture"`
+	OutputFormat   string `yaml:"output-format"`
+	PerfBufferSize int    `yaml:"perf-buffer-size"`
+	EventsPath     string `yaml:"events-path"`
+	ErrorsPath     string `yaml:"errors-path"`
 }
 
 func GetConfigFromYml() (*config, error) {
@@ -61,16 +53,6 @@ func UpdateConfig(key string, newvalue []byte, conf *config) error {
 			return fmt.Errorf("unrecognized output format: %s", output_format)
 		}
 		conf.OutputFormat = output_format
-	} else if key == "detect-original-syscall" {
-		if setDefault {
-			conf.DetectOriginalSyscall = false
-		} else {
-			detect_original_syscall, err := strconv.ParseBool(string(newvalue))
-			if err != nil {
-				return fmt.Errorf("invalid detect  original syscall value: %v", err)
-			}
-			conf.DetectOriginalSyscall = detect_original_syscall
-		}
 	} else if key == "perf-buffer-size" {
 		if setDefault {
 			conf.PerfBufferSize = 64
@@ -84,46 +66,19 @@ func UpdateConfig(key string, newvalue []byte, conf *config) error {
 			}
 			conf.PerfBufferSize = int(perf_buffer_size)
 		}
-	} else if key == "show-exec-env" {
+	} else if key == "events-path" {
 		if setDefault {
-			conf.ShowExecEnv = false
-		} else {
-			show_exec_env, err := strconv.ParseBool(string(newvalue))
-			if err != nil {
-				return fmt.Errorf("invalid detect  original syscall value: %v", err)
-			}
-			conf.ShowExecEnv = show_exec_env
-		}
-	} else if key == "show-all-syscalls" {
-		if setDefault {
-			conf.DetectOriginalSyscall = false
-		} else {
-			show_all_syscalls, err := strconv.ParseBool(string(newvalue))
-			if err != nil {
-				return fmt.Errorf("invalid show all syscalls value: %v", err)
-			}
-			conf.DetectOriginalSyscall = show_all_syscalls
-		}
-	} else if key == "output-path" {
-		if setDefault {
-			conf.OutputPath = ""
+			conf.EventsPath = ""
 			return nil
 		} else {
-			output_path := string(newvalue)
-			//to-do validate the output_path
-			conf.OutputPath = output_path
+			conf.EventsPath = string(newvalue)
 		}
-	} else if key == "capture" {
+	} else if key == "errors-path" {
 		if setDefault {
-			conf.Capture = ""
+			conf.EventsPath = ""
+			return nil
 		} else {
-			capture := strings.Split(string(newvalue), "|")
-			for _, cap := range capture {
-				if cap != "men" && cap != "write" && cap != "exec" && cap != "all" {
-					return fmt.Errorf("invalid capture value :%s", cap)
-				}
-			}
-			conf.Capture = string(newvalue)
+			conf.EventsPath = string(newvalue)
 		}
 	} else {
 		return fmt.Errorf("not such config key")
