@@ -1,9 +1,5 @@
 package ctrace
 
-import (
-	"math"
-)
-
 // bpfConfig is an enum that include various configurations that can be passed to bpf code
 // config should match defined values in ebpf code
 type bpfConfig uint32
@@ -472,7 +468,7 @@ var EventsIDToEvent = map[int32]EventConfig{
 }
 
 // EventsIDToParams is list of the parameters (name and type) used by the events
-var EventsIDToParams = map[int32][]external.ArgMeta{
+var EventsIDToParams = map[int32][]ArgMeta{
 	ReadEventID:                {{Type: "int", Name: "fd"}, {Type: "void*", Name: "buf"}, {Type: "size_t", Name: "count"}},
 	WriteEventID:               {{Type: "int", Name: "fd"}, {Type: "void*", Name: "buf"}, {Type: "size_t", Name: "count"}},
 	OpenEventID:                {{Type: "const char*", Name: "pathname"}, {Type: "int", Name: "flags"}, {Type: "mode_t", Name: "mode"}},

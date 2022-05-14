@@ -8,19 +8,22 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
-	"strings"
 
 	bpf "github.com/aquasecurity/libbpfgo"
 )
 
 // CtraceConfig is a struct containing user defined configuration of ctrace
 type CtraceConfig struct {
+	EventsToTrace  []int32
 	OutputFormat   string
 	PerfBufferSize int
 	EventsPath     string
@@ -114,13 +117,13 @@ func (tc CtraceConfig) Validate() error {
 		return fmt.Errorf("eventsToTrace is nil")
 	}
 	for _, e := range tc.EventsToTrace {
-		event, ok := EventsIDToEvent[e]
+		_, ok := EventsIDToEvent[e]
 		if !ok {
 			return fmt.Errorf("invalid event to trace: %d", e)
 		}
-		if event.Name == "reserved" {
-			return fmt.Errorf("event is not implemented: %s", event.Name)
-		}
+	}
+	if tc.OutputFormat != "table" && tc.OutputFormat != "json" && tc.OutputFormat != "gob" {
+		return fmt.Errorf("unrecognized output format: %s", tc.OutputFormat)
 	}
 	return nil
 }
@@ -229,6 +232,12 @@ func (t *Ctrace) populateBPFMaps() error {
 		}
 	}
 
+	sys32to64BPFMap, _ := t.bpfModule.GetMap("sys_32_to_64_map")
+	for _, event := range EventsIDToEvent {
+		// Prepare 32bit to 64bit syscall number mapping
+		sys32to64BPFMap.Update(event.ID32Bit, event.ID)
+	}
+
 	eventsParams := t.initEventsParams()
 
 	paramsTypesBPFMap, _ := t.bpfModule.GetMap("params_types_map")
@@ -260,6 +269,7 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 		config: cfg,
 	}
 	outf := os.Stdout
+	log.Println("New: events path: ", t.config.EventsPath)
 	if t.config.EventsPath != "" {
 		dir := filepath.Dir(t.config.EventsPath)
 		os.MkdirAll(dir, 0755)
@@ -268,8 +278,10 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 		if err != nil {
 			return nil, err
 		}
+		log.Println("New: set the outf by events path")
 	}
 	errf := os.Stderr
+	log.Println("New: errors path: ", t.config.ErrorsPath)
 	if t.config.ErrorsPath != "" {
 		dir := filepath.Dir(t.config.ErrorsPath)
 		os.MkdirAll(dir, 0755)
@@ -278,8 +290,10 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 		if err != nil {
 			return nil, err
 		}
+		log.Println("New: set the errf by events path")
 	}
-	t.printer, err= newEventPrinter(t.config.OutputFormat, outf, errf)
+	log.Println("New: set printer")
+	t.printer, err = newEventPrinter(t.config.OutputFormat, outf, errf)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +302,26 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 	// 	return nil, fmt.Errorf("error initializing containers: %v", err)
 	// }
 	// t.containers = c
+	log.Println("New: set eventsToTrace")
+	t.eventsToTrace = make(map[int32]bool, len(t.config.EventsToTrace))
+	for _, e := range t.config.EventsToTrace {
+		// Map value is true iff events requested by the user
+		t.eventsToTrace[e] = true
+	}
 
+	// Compile final list of events to trace including essential events
+	for id, event := range EventsIDToEvent {
+		// If an essential event was not requested by the user, set its map value to false
+		if event.EssentialEvent && !t.eventsToTrace[id] {
+			t.eventsToTrace[id] = false
+		}
+	}
+
+	t.DecParamName[0] = make(map[argTag]ArgMeta)
+	t.EncParamName[0] = make(map[string]argTag)
+	t.DecParamName[1] = make(map[argTag]ArgMeta)
+	t.EncParamName[1] = make(map[string]argTag)
+	log.Println("New: ready to init BPF")
 	err = t.initBPF()
 	if err != nil {
 		t.Close()
@@ -299,8 +332,8 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 
 func (t *Ctrace) initBPF() error {
 	var err error
-	ebpfProgram, err:= getEBPFProgramPath()
-	if err!=nil {
+	ebpfProgram, err := getEBPFProgramPath()
+	if err != nil {
 		return err
 	}
 	t.bpfModule, err = bpf.NewModuleFromFile(ebpfProgram)
@@ -311,6 +344,10 @@ func (t *Ctrace) initBPF() error {
 	if err != nil {
 		return fmt.Errorf("Failed to find kernel version: %v", err)
 	}
+	// BPFLoadObject() automatically loads ALL BPF programs according to their section type, unless set otherwise
+	// For every BPF program, we need to make sure that:
+	// 1. We disable autoload if the program is not required by any event and is not essential
+	// 2. The correct BPF program type is set
 	for _, event := range EventsIDToEvent {
 		for _, probe := range event.Probes {
 			prog, _ := t.bpfModule.GetProgram(probe.fn)
@@ -337,17 +374,22 @@ func (t *Ctrace) initBPF() error {
 			}
 		}
 	}
-
+	for event, ok := range t.eventsToTrace {
+		log.Println("eventsToTrace " + strconv.FormatInt(int64(event), 10) + strconv.FormatBool(ok))
+	}
+	log.Println("initBPF: BPF Loading object")
 	err = t.bpfModule.BPFLoadObject()
 	if err != nil {
 		return fmt.Errorf("error loading object from bpf module, %v", err)
 	}
 
+	log.Println("initBPF: BPF populating BPF maps")
 	err = t.populateBPFMaps()
 	if err != nil {
 		return fmt.Errorf("error populating ebpf map, %v", err)
 	}
 
+	log.Println("initBPF: attaching BPF probs")
 	for e, _ := range t.eventsToTrace {
 		event, ok := EventsIDToEvent[e]
 		if !ok {
@@ -362,17 +404,17 @@ func (t *Ctrace) initBPF() error {
 			if err != nil {
 				return fmt.Errorf("error getting program %s: %v", probe.fn, err)
 			}
+			//log.Println("got program", probe.fn)
 			if probe.attach == rawTracepoint && !supportRawTracepoints {
 				// We fallback to regular tracepoint in case kernel doesn't support raw tracepoints (< 4.17)
 				probe.attach = tracepoint
+				//log.Println("set" + probe.fn + "probe.attach from rawTracepoint to tracepoint")
 			}
 			switch probe.attach {
 			case kprobe:
-				// todo: after updating minimal kernel version to 4.18, use without legacy
-				_, err = prog.AttachKprobeLegacy(probe.event)
+				_, err = prog.AttachKprobe(probe.event)
 			case kretprobe:
-				// todo: after updating minimal kernel version to 4.18, use without legacy
-				_, err = prog.AttachKretprobeLegacy(probe.event)
+				_, err = prog.AttachKretprobe(probe.event)
 			case tracepoint:
 				_, err = prog.AttachTracepoint(probe.event)
 			case rawTracepoint:
@@ -382,10 +424,11 @@ func (t *Ctrace) initBPF() error {
 			if err != nil {
 				return fmt.Errorf("error attaching event %s: %v", probe.event, err)
 			}
+			log.Println("attached program", probe.fn)
 		}
 	}
 
-	//todo: set containers_map
+	log.Println("initBPF: set events perf buf")
 	t.eventsChannel = make(chan []byte, 1000)
 	t.lostEvChannel = make(chan uint64)
 	t.eventsPerfMap, err = t.bpfModule.InitPerfBuf("events", t.eventsChannel, t.lostEvChannel, t.config.PerfBufferSize)
@@ -400,14 +443,18 @@ func (t *Ctrace) initBPF() error {
 func (t *Ctrace) Run() error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
+	done := make(chan struct{})
+	log.Println("Run: start to print info")
 	t.printer.Preamble()
 	t.eventsPerfMap.Start()
 	go t.processLostEvents()
-	go t.processEvents()
+	go t.processEvents(done)
 	<-sig
 	t.eventsPerfMap.Stop()
 	t.printer.Epilogue(t.stats)
+	close(done)
 	t.Close()
+	log.Println("Run: ctrace closed")
 	return nil
 }
 
@@ -419,36 +466,207 @@ func (t Ctrace) Close() {
 	t.printer.Close()
 }
 
-func boolToUInt32(b bool) uint32 {
-	if b {
-		return uint32(1)
+func (t *Ctrace) processLostEvents() {
+	for {
+		lost := <-t.lostEvChannel
+		t.stats.lostEvCounter.Increment(int(lost))
 	}
-	return uint32(0)
 }
 
-func copyFileByPath(src, dst string) error {
-	sourceFileStat, err := os.Stat(src)
+func (t *Ctrace) handleError(err error) {
+	t.stats.errorCounter.Increment()
+	t.printer.Error(err)
+}
+
+type RawEvent struct {
+	Ctx      context
+	RawArgs  map[argTag]interface{}
+	ArgsTags []argTag
+}
+
+func (t *Ctrace) processEvents(done <-chan struct{}) error {
+	//list of <-chan error
+	//<-chan error: use this to send struct error data
+	var errcList []<-chan error
+
+	// Source pipeline stage.
+	rawEventChan, errc, err := t.decodeRawEvent(done)
 	if err != nil {
 		return err
 	}
-	if !sourceFileStat.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", src)
-	}
-	source, err := os.Open(src)
+	errcList = append(errcList, errc)
+
+	processedEventChan, errc, err := t.processRawEvent(done, rawEventChan)
 	if err != nil {
 		return err
 	}
-	defer source.Close()
-	destination, err := os.Create(dst)
+	errcList = append(errcList, errc)
+
+	printEventChan, errc, err := t.prepareEventForPrint(done, processedEventChan)
 	if err != nil {
 		return err
 	}
-	defer destination.Close()
-	_, err = io.Copy(destination, source)
+	errcList = append(errcList, errc)
+
+	errc, err = t.printEvent(done, printEventChan)
 	if err != nil {
 		return err
+	}
+	errcList = append(errcList, errc)
+
+	// Pipeline started. Waiting for pipeline to complete
+	return t.WaitForPipeline(errcList...)
+}
+
+func (t *Ctrace) decodeRawEvent(done <-chan struct{}) (<-chan RawEvent, <-chan error, error) {
+	out := make(chan RawEvent)
+	errc := make(chan error, 1)
+	go func() {
+		defer close(out)
+		defer close(errc)
+		for dataRaw := range t.eventsChannel {
+			dataBuff := bytes.NewBuffer(dataRaw)
+			var ctx context
+			err := binary.Read(dataBuff, binary.LittleEndian, &ctx)
+			if err != nil {
+				errc <- err
+				continue
+			}
+			rawArgs := make(map[argTag]interface{})
+			argsTags := make([]argTag, ctx.Argc)
+			for i := 0; i < int(ctx.Argc); i++ {
+				tag, val, err := readArgFromBuff(dataBuff)
+				if err != nil {
+					errc <- err
+					continue
+				}
+				argsTags[i] = tag
+				rawArgs[tag] = val
+			}
+			select {
+			case out <- RawEvent{ctx, rawArgs, argsTags}:
+			case <-done:
+				return
+			}
+		}
+	}()
+	return out, errc, nil
+}
+
+func (t *Ctrace) processRawEvent(done <-chan struct{}, in <-chan RawEvent) (<-chan RawEvent, <-chan error, error) {
+	out := make(chan RawEvent)
+	errc := make(chan error, 1)
+	go func() {
+		defer close(out)
+		defer close(errc)
+		for rawEvent := range in {
+			err := t.processEvent(&rawEvent.Ctx, rawEvent.RawArgs)
+			if err != nil {
+				errc <- err
+				continue
+			}
+			select {
+			case out <- rawEvent:
+			case <-done:
+				return
+			}
+		}
+	}()
+	return out, errc, nil
+}
+
+func (t *Ctrace) processEvent(ctx *context, args map[argTag]interface{}) error {
+	return nil
+}
+
+func (t *Ctrace) prepareEventForPrint(done <-chan struct{}, in <-chan RawEvent) (<-chan Event, <-chan error, error) {
+	out := make(chan Event, 1000)
+	errc := make(chan error, 1)
+	go func() {
+		defer close(out)
+		defer close(errc)
+		for rawEvent := range in {
+			err := t.prepareArgsForPrint(&rawEvent.Ctx, rawEvent.RawArgs)
+			if err != nil {
+				errc <- err
+				continue
+			}
+			args := make([]interface{}, rawEvent.Ctx.Argc)
+			argMetas := make([]ArgMeta, rawEvent.Ctx.Argc)
+			for i, tag := range rawEvent.ArgsTags {
+				args[i] = rawEvent.RawArgs[tag]
+				argMeta, ok := t.DecParamName[rawEvent.Ctx.Event_id%2][tag]
+				if ok {
+					argMetas[i] = argMeta
+				} else {
+					errc <- fmt.Errorf("Invalid arg tag for event %d", rawEvent.Ctx.Event_id)
+					continue
+				}
+			}
+			evt, err := newEvent(rawEvent.Ctx, argMetas, args)
+			if err != nil {
+				errc <- err
+				continue
+			}
+			select {
+			case out <- evt:
+			case <-done:
+				return
+			}
+		}
+	}()
+	return out, errc, nil
+}
+
+func (t *Ctrace) printEvent(done <-chan struct{}, in <-chan Event) (<-chan error, error) {
+	errc := make(chan error, 1)
+	go func() {
+		defer close(errc)
+		for printEvent := range in {
+			t.stats.eventCounter.Increment()
+			t.printer.Print(printEvent)
+		}
+	}()
+	return errc, nil
+}
+
+func (t *Ctrace) WaitForPipeline(errs ...<-chan error) error {
+	errc := MergeErrors(errs...)
+	for err := range errc {
+		t.handleError(err)
 	}
 	return nil
+}
+
+// MergeErrors merges multiple channels of errors.
+// Based on https://blog.golang.org/pipelines.
+func MergeErrors(cs ...<-chan error) <-chan error {
+	var wg sync.WaitGroup
+	// We must ensure that the output channel has the capacity to hold as many errors
+	// as there are error channels. This will ensure that it never blocks, even
+	// if WaitForPipeline returns early.
+	out := make(chan error, len(cs))
+
+	// Start an output goroutine for each input channel in cs.  output
+	// copies values from c to out until c is closed, then calls wg.Done.
+	output := func(c <-chan error) {
+		for n := range c {
+			out <- n
+		}
+		wg.Done()
+	}
+	wg.Add(len(cs))
+	for _, c := range cs {
+		go output(c)
+	}
+
+	// Start a goroutine to close out once all the output goroutines are
+	// done.  This must start after the wg.Add call.
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+	return out
 }
 
 func (t *Ctrace) prepareArgsForPrint(ctx *context, args map[argTag]interface{}) error {
@@ -548,13 +766,260 @@ func (t *Ctrace) prepareArgsForPrint(ctx *context, args map[argTag]interface{}) 
 	return nil
 }
 
-
-
-func (t *Ctrace) processLostEvents() {
-	for {
-		lost := <-t.lostEvChannel
-		t.stats.lostEvCounter.Increment(int(lost))
+func boolToUInt32(b bool) uint32 {
+	if b {
+		return uint32(1)
 	}
+	return uint32(0)
 }
 
+func copyFileByPath(src, dst string) error {
+	sourceFileStat, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !sourceFileStat.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", src)
+	}
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	destination, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+	_, err = io.Copy(destination, source)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
+type alert struct {
+	Ts      uint64
+	Msg     uint32
+	Payload uint8
+}
+
+func readStringFromBuff(buff io.Reader) (string, error) {
+	var err error
+	var size uint32
+	err = binary.Read(buff, binary.LittleEndian, &size)
+	if err != nil {
+		return "", fmt.Errorf("error reading string size: %v", err)
+	}
+	if size > 4096 {
+		return "", fmt.Errorf("string size too big: %d", size)
+	}
+	res, err := readByteSliceFromBuff(buff, int(size-1)) //last byte is string terminating null
+	defer func() {
+		var dummy int8
+		binary.Read(buff, binary.LittleEndian, &dummy) //discard last byte which is string terminating null
+	}()
+	if err != nil {
+		return "", fmt.Errorf("error reading string arg: %v", err)
+	}
+	return string(res), nil
+}
+
+// readStringVarFromBuff reads a null-terminated string from `buff`
+func readStringVarFromBuff(buff io.Reader, max int) (string, error) {
+	var err error
+	var char int8
+	res := make([]byte, max)
+	err = binary.Read(buff, binary.LittleEndian, &char)
+	if err != nil {
+		return "", fmt.Errorf("error reading null terminated string: %v", err)
+	}
+	for count := 1; char != 0 && count < max; count++ {
+		res = append(res, byte(char))
+		err = binary.Read(buff, binary.LittleEndian, &char)
+		if err != nil {
+			return "", fmt.Errorf("error reading null terminated string: %v", err)
+		}
+	}
+	res = bytes.TrimLeft(res[:], "\000")
+	return string(res), nil
+}
+
+func readByteSliceFromBuff(buff io.Reader, len int) ([]byte, error) {
+	var err error
+	res := make([]byte, len)
+	err = binary.Read(buff, binary.LittleEndian, &res)
+	if err != nil {
+		return nil, fmt.Errorf("error reading byte array: %v", err)
+	}
+	return res, nil
+}
+
+func readSockaddrFromBuff(buff io.Reader) (map[string]string, error) {
+	res := make(map[string]string, 3)
+	var family int16
+	err := binary.Read(buff, binary.LittleEndian, &family)
+	if err != nil {
+		return nil, err
+	}
+	res["sa_family"] = PrintSocketDomain(uint32(family))
+	switch family {
+	case 1: // AF_UNIX
+		/*
+			http://man7.org/linux/man-pages/man7/unix.7.html
+			struct sockaddr_un {
+					sa_family_t sun_family;     // AF_UNIX
+					char        sun_path[108];  // Pathname
+			};
+		*/
+		var sunPathBuf [108]byte
+		err := binary.Read(buff, binary.LittleEndian, &sunPathBuf)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing sockaddr_un: %v", err)
+		}
+		trimmedPath := bytes.TrimLeft(sunPathBuf[:], "\000")
+		sunPath := ""
+		if len(trimmedPath) != 0 {
+			sunPath, err = readStringVarFromBuff(bytes.NewBuffer(trimmedPath), 108)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error parsing sockaddr_un: %v", err)
+		}
+		res["sun_path"] = sunPath
+	case 2: // AF_INET
+		/*
+			http://man7.org/linux/man-pages/man7/ip.7.html
+			struct sockaddr_in {
+				sa_family_t    sin_family; // address family: AF_INET
+				in_port_t      sin_port;   // port in network byte order
+				struct in_addr sin_addr;   // internet address
+				// byte        padding[8]; //https://elixir.bootlin.com/linux/v4.20.17/source/include/uapi/linux/in.h#L232
+			};
+			struct in_addr {
+				uint32_t       s_addr;     // address in network byte order
+			};
+		*/
+		var port uint16
+		err = binary.Read(buff, binary.BigEndian, &port)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing sockaddr_in: %v", err)
+		}
+		res["sin_port"] = strconv.Itoa(int(port))
+		var addr uint32
+		err = binary.Read(buff, binary.BigEndian, &addr)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing sockaddr_in: %v", err)
+		}
+		res["sin_addr"] = PrintUint32IP(addr)
+		_, err := readByteSliceFromBuff(buff, 8)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing sockaddr_in: %v", err)
+		}
+	case 10: // AF_INET6
+		/*
+			struct sockaddr_in6 {
+				sa_family_t     sin6_family;   // AF_INET6
+				in_port_t       sin6_port;     // port number
+				uint32_t        sin6_flowinfo; // IPv6 flow information
+				struct in6_addr sin6_addr;     // IPv6 address
+				uint32_t        sin6_scope_id; // Scope ID (new in 2.4)
+			};
+
+			struct in6_addr {
+				unsigned char   s6_addr[16];   // IPv6 address
+			};
+		*/
+		var port uint16
+		err = binary.Read(buff, binary.BigEndian, &port)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing sockaddr_in6: %v", err)
+		}
+		res["sin6_port"] = strconv.Itoa(int(port))
+
+		var flowinfo uint32
+		err = binary.Read(buff, binary.BigEndian, &flowinfo)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing sockaddr_in6: %v", err)
+		}
+		res["sin6_flowinfo"] = strconv.Itoa(int(flowinfo))
+		addr, err := readByteSliceFromBuff(buff, 16)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing sockaddr_in6: %v", err)
+		}
+		res["sin6_addr"] = Print16BytesSliceIP(addr)
+		var scopeid uint32
+		err = binary.Read(buff, binary.BigEndian, &scopeid)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing sockaddr_in6: %v", err)
+		}
+		res["sin6_scopeid"] = strconv.Itoa(int(scopeid))
+	}
+	return res, nil
+}
+
+func readArgFromBuff(dataBuff io.Reader) (argTag, interface{}, error) {
+	var err error
+	var res interface{}
+	var argTag argTag
+	var argType argType
+	err = binary.Read(dataBuff, binary.LittleEndian, &argType)
+	if err != nil {
+		return argTag, nil, fmt.Errorf("error reading arg type: %v", err)
+	}
+	err = binary.Read(dataBuff, binary.LittleEndian, &argTag)
+	if err != nil {
+		return argTag, nil, fmt.Errorf("error reading arg tag: %v", err)
+	}
+	switch argType {
+	case intT:
+		var data int32
+		err = binary.Read(dataBuff, binary.LittleEndian, &data)
+		res = data
+	case uintT, devT, modeT:
+		var data uint32
+		err = binary.Read(dataBuff, binary.LittleEndian, &data)
+		res = data
+	case longT:
+		var data int64
+		err = binary.Read(dataBuff, binary.LittleEndian, &data)
+		res = data
+	case ulongT, offT, sizeT:
+		var data uint64
+		err = binary.Read(dataBuff, binary.LittleEndian, &data)
+		res = data
+	case pointerT:
+		var data uint64
+		err = binary.Read(dataBuff, binary.LittleEndian, &data)
+		res = uintptr(data)
+	case sockAddrT:
+		res, err = readSockaddrFromBuff(dataBuff)
+	case alertT:
+		var data alert
+		err = binary.Read(dataBuff, binary.LittleEndian, &data)
+		res = data
+	case strT:
+		res, err = readStringFromBuff(dataBuff)
+	case strArrT:
+		var ss []string
+		var arrLen uint8
+		err = binary.Read(dataBuff, binary.LittleEndian, &arrLen)
+		if err != nil {
+			return argTag, nil, fmt.Errorf("error reading string array number of elements: %v", err)
+		}
+		for i := 0; i < int(arrLen); i++ {
+			s, err := readStringFromBuff(dataBuff)
+			if err != nil {
+				return argTag, nil, fmt.Errorf("error reading string element: %v", err)
+			}
+			ss = append(ss, s)
+		}
+		res = ss
+	default:
+		// if we don't recognize the arg type, we can't parse the rest of the buffer
+		return argTag, nil, fmt.Errorf("error unknown arg type %v", argType)
+	}
+	if err != nil {
+		return argTag, nil, err
+	}
+	return argTag, res, nil
+}

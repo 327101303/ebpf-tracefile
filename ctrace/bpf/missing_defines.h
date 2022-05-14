@@ -5,6 +5,8 @@
 #define TIF_32BIT       22  /* 32bit process */
 #define _TIF_32BIT      (1 << TIF_32BIT)
 
+#define __user
+
 /* Supported address families. */
 #define AF_UNSPEC      0
 #define AF_UNIX        1          /* Unix domain sockets */

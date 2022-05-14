@@ -12,7 +12,7 @@ CGO_LDFLAGS="-lelf -lz -lbpf"
 CFLAGS =-g -O2 -c -Wall -fpie -Wno-unused-variable -Wno-unused-function
 
 .PHONY: build
-build: bpf ctrace 
+build: bpf-x86 ctrace 
 
 $(OUTPUT):
 	mkdir -p $(OUTPUT)
@@ -54,7 +54,7 @@ bpf-arm64: ${BPFFILE}/ctrace.bpf.c | vmlinuxh
 .PHONY: ctrace
 ctrace: $(SRC)
 	GOOS=linux cc=gcc CGO_CFLAGS=$(CGO_CFLAGS) CGO_LDFLAGS=$(CGO_LDFLAGS) \
-	go build -o ${OUTPUT}/ctrace
+	go build -v -o ${OUTPUT}/ctrace
 
 
 #clean

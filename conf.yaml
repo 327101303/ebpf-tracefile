@@ -1,7 +1,4 @@
 output-format: table
-detect-original-syscall: false
 perf-buffer-size: 64
-show-all-syscalls: false
-output-path: ""
-show-exec-env: false
-capture: exec
+events-path:
+errors-path:

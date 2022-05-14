@@ -8,7 +8,7 @@ make: *** No rule to make target 'all'.  Stop.
 # This is free software: you are free to change and redistribute it.
 # There is NO WARRANTY, to the extent permitted by law.
 
-# Make data base, printed on Thu May 12 01:39:37 2022
+# Make data base, printed on Fri May 13 05:00:22 2022
 
 # Variables
 
@@ -37,7 +37,7 @@ UUID = 054ea912-c442-4f7a-9244-d3f8326d4edd
 # environment
 KAFKA_HOME = /opt/kafka/kafka-2.8.1
 # environment
-VSCODE_IPC_HOOK_EXTHOST = /run/user/1000/vscode-ipc-97eaf7bd-f0a3-47af-8b93-10888800b7c7.sock
+VSCODE_IPC_HOOK_EXTHOST = /run/user/1000/vscode-ipc-23adb819-1880-48a2-81b7-cb174e213e54.sock
 # environment
 VSCODE_CWD = /home/taosupr
 # makefile (from 'Makefile', line 2)
@@ -79,7 +79,7 @@ VMLINUXH = ${BPFFILE}/vmlinux.h
 # environment
 LANG = C
 # environment
-XAUTHORITY = /run/user/1000/.mutter-Xwaylandauth.BI7XL1
+XAUTHORITY = /run/user/1000/.mutter-Xwaylandauth.5YLRL1
 # default
 .LOADED := 
 # default
@@ -123,7 +123,7 @@ SNAP_REEXEC =
 # environment
 VSCODE_VERBOSE_LOGGING = true
 # environment
-VSCODE_PID = 2762
+VSCODE_PID = 2754
 # environment
 XDG_SESSION_TYPE = wayland
 # automatic
@@ -133,7 +133,7 @@ BAMF_DESKTOP_FILE_HINT = /var/lib/snapd/desktop/applications/code_code.desktop
 # environment
 CONDA_PYTHON_EXE = /home/taosupr/anaconda3/bin/python
 # environment
-SESSION_MANAGER = local/ubuntu:@/tmp/.ICE-unix/2085,unix/ubuntu:/tmp/.ICE-unix/2085
+SESSION_MANAGER = local/ubuntu:@/tmp/.ICE-unix/2109,unix/ubuntu:/tmp/.ICE-unix/2109
 # automatic
 *F = $(notdir $*)
 # environment
@@ -183,7 +183,7 @@ SNAP = /snap/code/96
 # environment
 GOROOT = /usr/local/go
 # environment
-INVOCATION_ID = 1a4e140600274b668eab9fe9023b8516
+INVOCATION_ID = f709c7593cb2424f981b039d9bd346e2
 # environment
 SNAP_REVISION = 96
 # environment
@@ -225,7 +225,7 @@ SNAP_ARCH = amd64
 # makefile
 .DEFAULT_GOAL := build
 # environment
-SYSTEMD_EXEC_PID = 2107
+SYSTEMD_EXEC_PID = 2131
 # environment
 DISPLAY = :0
 # environment
@@ -243,9 +243,9 @@ SNAP_DATA = /var/snap/code/96
 # environment
 SNAP_CONTEXT = wr-4YEU-GM7TnfMTGQueuLsEMTMZfu7HghQt0NnEs6SxjT0NQHRz
 # environment
-MANAGERPID = 1990
+MANAGERPID = 2019
 # environment
-GIO_LAUNCHED_DESKTOP_FILE_PID = 2684
+GIO_LAUNCHED_DESKTOP_FILE_PID = 2677
 # environment
 _ = /snap/code/96/usr/share/code/code
 # environment
@@ -257,7 +257,7 @@ GDK_PIXBUF_MODULE_FILE = /home/taosupr/snap/code/common/.cache/gdk-pixbuf-loader
 # environment
 _CE_M = 
 # environment
-JOURNAL_STREAM = 8:55918
+JOURNAL_STREAM = 8:55587
 # environment
 GOMODCACHE = /home/taosupr/goProject/pkg/mod
 # environment
@@ -279,6 +279,7 @@ VSCODE_IPC_HOOK = /run/user/1000/vscode-8f547f26-1.67.1-main.sock
 # environment
 SNAP_NAME = code
 # environment
+ 
 GSETTINGS_SCHEMA_DIR = /snap/code/96/usr/share/glib-2.0/schemas
 # makefile (from 'Makefile', line 8)
 DBGVMLINUX = /usr/lib/debug/boot/vmlinux-$(shell uname -r)
@@ -289,7 +290,6 @@ IM_CONFIG_PHASE = 1
 # environment
 GOPROXY = https://goproxy.cn
 # default
- 
 .RECIPEPREFIX := 
 # automatic
 <F = $(notdir $<)
@@ -391,15 +391,9 @@ ctrace/bpf/ctrace.bpf.c:
 # Not a target:
 Makefile:
 #  Implicit rule search has been done.
-#  Last modified 2022-05-12 01:35:42.398726647
+#  Last modified 2022-05-13 00:27:32.348596427
 #  File has been updated.
 #  Successfully updated.
-
-# Not a target:
-bpf:
-#  Implicit rule search has not been done.
-#  Modification time never checked.
-#  File has not been updated.
 
 # Not a target:
 command/trace.go:
@@ -421,14 +415,14 @@ clean:
 #  recipe to execute (from 'Makefile', line 63):
 	rm -rf ${OUTPUT}
 
-ctrace: command/common.go command/config.go command/trace.go main.go config/config.go ctrace/printer.go ctrace/external.go ctrace/consts_arm64.go ctrace/argprinters.go ctrace/container.go ctrace/ctrace.go ctrace/consts.go
+ctrace: command/common.go command/config.go command/trace.go main.go config/config.go ctrace/printer.go ctrace/external.go ctrace/consts_arm64.go ctrace/argprinters.go ctrace/consts_amd64.go ctrace/container.go ctrace/ctrace.go ctrace/consts.go
 #  Phony target (prerequisite of .PHONY).
 #  Implicit rule search has not been done.
 #  File does not exist.
 #  File has not been updated.
 #  recipe to execute (from 'Makefile', line 56):
 	GOOS=linux cc=gcc CGO_CFLAGS=$(CGO_CFLAGS) CGO_LDFLAGS=$(CGO_LDFLAGS) \
-	go build -o ${OUTPUT}/ctrace
+	go build -v -o ${OUTPUT}/ctrace
 
 # Not a target:
 .DEFAULT:
@@ -461,7 +455,7 @@ all:
 #  File does not exist.
 #  File has not been updated.
 
-build: bpf ctrace
+build: bpf-x86 ctrace
 #  Phony target (prerequisite of .PHONY).
 #  Implicit rule search has not been done.
 #  File does not exist.
@@ -497,6 +491,12 @@ ctrace/argprinters.go:
 #  Modification time never checked.
 #  File has not been updated.
 
+# Not a target:
+ctrace/consts_amd64.go:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
 .PHONY: build vmlinuxh bpf-x86 bpf-arm64 ctrace clean
 #  Implicit rule search has not been done.
 #  Modification time never checked.
@@ -525,19 +525,19 @@ bpf-x86: ctrace/bpf/ctrace.bpf.c | vmlinuxh
 	
 
 # files hash-table stats:
-# Load=27/1024=3%, Rehash=0, Collisions=3/75=4%
+# Load=27/1024=3%, Rehash=0, Collisions=3/76=4%
 # VPATH Search Paths
 
 # No 'vpath' search paths.
 
 # No general ('VPATH' variable) search path.
 
-# strcache buffers: 1 (0) / strings = 41 / storage = 471 B / avg = 11 B
-# current buf: size = 8162 B / used = 471 B / count = 41 / avg = 11 B
+# strcache buffers: 1 (0) / strings = 41 / storage = 490 B / avg = 11 B
+# current buf: size = 8162 B / used = 490 B / count = 41 / avg = 11 B
 
-# strcache performance: lookups = 79 / hit rate = 48%
+# strcache performance: lookups = 80 / hit rate = 48%
 # hash-table stats:
-# Load=41/8192=1%, Rehash=0, Collisions=0/79=0%
-# Finished Make data base on Thu May 12 01:39:37 2022
+# Load=41/8192=1%, Rehash=0, Collisions=0/80=0%
+# Finished Make data base on Fri May 13 05:00:22 2022
 
  

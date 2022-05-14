@@ -43,7 +43,11 @@
     BPF_MAP(_name, BPF_MAP_TYPE_PROG_ARRAY, u32, u32, _max_entries)
 
 #define BPF_PERF_OUTPUT(_name) \
-    BPF_MAP(_name, BPF_MAP_TYPE_PERF_EVENT_ARRAY, int, __u32, 1024)
+    struct {                                                            \
+        __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);                    \
+        __uint(key_size, sizeof(u32));                                  \
+        __uint(value_size, sizeof(u32));                                \
+    } _name SEC(".maps");
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 18, 0)
 #error Minimal required kernel version is 4.18

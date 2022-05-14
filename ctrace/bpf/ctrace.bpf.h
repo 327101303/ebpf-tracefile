@@ -11,7 +11,6 @@
 #include "common.bpf.h"
 
 
-
 #ifndef TASK_COMM_LEN
 #define TASK_COMM_LEN 16
 #endif
@@ -152,7 +151,9 @@ BPF_PERCPU_ARRAY(bufs_off, u32, MAX_BUFFERS);
 // Encoded parameters types for event
 BPF_HASH(params_types_map, u32, u64); 
 // Encoded parameters names for event                  
-BPF_HASH(params_names_map, u32, u64);                   
+BPF_HASH(params_names_map, u32, u64);
+// Map 32bit syscalls numbers to 64bit syscalls numbers                   
+BPF_HASH(sys_32_to_64_map, u32, u32);
 
 /*================================== EVENTS ====================================*/
 BPF_PERF_OUTPUT(events);

@@ -89,21 +89,13 @@ type tableEventPrinter struct {
 func (p tableEventPrinter) Init() error { return nil }
 
 func (p tableEventPrinter) Preamble() {
-	if p.containerMode {
-		fmt.Fprintf(p.out, "%-14s %-16s %-6s %-16s %-15s %-15s %-16s %-20s %s", "TIME(s)", "UTS_NAME", "UID", "COMM", "PID/host", "TID/host", "RET", "EVENT", "ARGS")
-	} else {
-		fmt.Fprintf(p.out, "%-14s %-6s %-16s %-7s %-7s %-16s %-20s %s", "TIME(s)", "UID", "COMM", "PID", "TID", "RET", "EVENT", "ARGS")
-	}
+	fmt.Fprintf(p.out, "%-14s %-6s %-16s %-7s %-7s %-16s %-20s %s", "TIME(s)", "UID", "COMM", "PID", "TID", "RET", "EVENT", "ARGS")
 	fmt.Fprintln(p.out)
 }
 
 func (p tableEventPrinter) Print(event Event) {
 
-	if p.containerMode {
-		fmt.Fprintf(p.out, "%-14f %-16s %-6d %-16s %-7d/%-7d %-7d/%-7d %-16d %-20s ", event.Timestamp, event.HostName, event.UserID, event.ProcessName, event.ProcessID, event.HostProcessID, event.ThreadID, event.HostThreadID, event.ReturnValue, event.EventName)
-	} else {
-		fmt.Fprintf(p.out, "%-14f %-6d %-16s %-7d %-7d %-16d %-20s ", event.Timestamp, event.UserID, event.ProcessName, event.ProcessID, event.ThreadID, event.ReturnValue, event.EventName)
-	}
+	fmt.Fprintf(p.out, "%-14f %-6d %-16s %-7d %-7d %-16d %-20s ", event.Timestamp, event.UserID, event.ProcessName, event.ProcessID, event.ThreadID, event.ReturnValue, event.EventName)
 	for i, arg := range event.Args {
 		if i == 0 {
 			fmt.Fprintf(p.out, "%s: %v", arg.Name, arg.Value)

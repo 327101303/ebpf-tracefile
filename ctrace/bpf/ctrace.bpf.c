@@ -64,6 +64,7 @@ static __always_inline int save_to_buf(struct buf_t *submit_p, void *ptr, int si
 // The biggest element that can be saved with this function should be defined here
 #define MAX_ELEMENT_SIZE sizeof(struct sockaddr_un)
 
+    // Data saved to submit buf: [type][tag][*ptr]
     if (type == 0)
         return 0;
 
@@ -123,6 +124,7 @@ static __always_inline int save_context_to_buf(struct buf_t *submit_p, void *ptr
 
 static __always_inline int save_str_to_buf(struct buf_t *submit_p, void *ptr, u8 tag)
 {
+    // Data saved to submit buf: [type][tag][str size][str]
     u32* off = get_buf_off(SUBMIT_BUF_IDX);
     if (off == NULL)
         return -1;
@@ -164,6 +166,82 @@ static __always_inline int save_str_to_buf(struct buf_t *submit_p, void *ptr, u8
     return 0;
 }
 
+static __always_inline int save_str_arr_to_buf(struct buf_t *submit_p, const char __user *const __user *ptr, u8 tag)
+{
+    // Data saved to submit buf: [type][tag][str count][str1 size][str1][str2 size][str2]...
+    u8 elem_num = 0;
+
+    u32* off = get_buf_off(SUBMIT_BUF_IDX);
+    if (off == NULL)
+        return 0;
+
+    // mark string array start
+    u8 type = STR_ARR_T;
+    int rc = bpf_probe_read(&(submit_p->buf[*off & (MAX_PERCPU_BUFSIZE-1)]), 1, &type);
+    if (rc != 0)
+        return 0;
+
+    *off += 1;
+
+    // Save argument tag
+    rc = bpf_probe_read(&(submit_p->buf[*off & (MAX_PERCPU_BUFSIZE-1)]), 1, &tag);
+    if (rc != 0) {
+        *off -= 1;
+        return 0;
+    }
+
+    *off += 1;
+
+    // Save space for number of elements
+    u32 orig_off = *off;
+    *off += 1;
+
+    #pragma unroll
+    for (int i = 0; i < MAX_STR_ARR_ELEM; i++) {
+        const char *argp = NULL;
+        bpf_probe_read(&argp, sizeof(argp), &ptr[i]);
+        if (!argp)
+            goto out;
+
+        if (*off > MAX_PERCPU_BUFSIZE - MAX_STRING_SIZE - sizeof(int))
+            // not enough space - return
+            goto out;
+
+        // Read into buffer
+        int sz = bpf_probe_read_str(&(submit_p->buf[*off + sizeof(int)]), MAX_STRING_SIZE, argp);
+        if (sz > 0) {
+            if (*off > MAX_PERCPU_BUFSIZE - sizeof(int))
+                // Satisfy validator for probe read
+                goto out;
+            bpf_probe_read(&(submit_p->buf[*off]), sizeof(int), &sz);
+            *off += sz + sizeof(int);
+            elem_num++;
+            continue;
+        } else {
+            goto out;
+        }
+    }
+    // handle truncated argument list
+    char ellipsis[] = "...";
+    if (*off > MAX_PERCPU_BUFSIZE - MAX_STRING_SIZE - sizeof(int))
+        // not enough space - return
+        goto out;
+
+    // Read into buffer
+    int sz = bpf_probe_read_str(&(submit_p->buf[*off + sizeof(int)]), MAX_STRING_SIZE, ellipsis);
+    if (sz > 0) {
+        if (*off > MAX_PERCPU_BUFSIZE - sizeof(int))
+            // Satisfy validator for probe read
+            goto out;
+        bpf_probe_read(&(submit_p->buf[*off]), sizeof(int), &sz);
+        *off += sz + sizeof(int);
+        elem_num++;
+    }
+out:
+    // save number of elements in the array
+    bpf_probe_read(&(submit_p->buf[orig_off & (MAX_PERCPU_BUFSIZE-1)]), 1, &elem_num);
+    return 1;
+}
 
 #define DEC_ARG(n, enc_arg) ((enc_arg>>(8*n))&0xFF)
 
@@ -266,7 +344,7 @@ static __always_inline int save_args_to_buf(u64 types, u64 tags, struct args_t *
         }
     }
 
-    return 0;
+    return argc;
 }
 
 static __always_inline int events_perf_submit(void *ctx)
@@ -399,17 +477,20 @@ static __always_inline int trace_ret_generic(void *ctx, u32 id, u64 types, u64 t
     struct buf_t *submit_p = get_buf(SUBMIT_BUF_IDX);
     if (submit_p == NULL)
         return 0;
+    bpf_printk("trace_ret_generic, got submit_p");
     set_buf_off(SUBMIT_BUF_IDX, sizeof(struct context_t));
 
     u8 argnum = save_args_to_buf(types, tags, args);
+    bpf_printk("trace_ret_generic, saved types and tags");
     struct context_t context = {};
     init_context(&context);
     context.argc = argnum;
     context.retval = ret;
     context.eventid = id;
     save_context_to_buf(submit_p, (void*)&context);
-
+    bpf_printk("trace_ret_generic, saved context, argc=%d", context.argc);
     events_perf_submit(ctx);
+    bpf_printk("trace_ret_generic, submitted context");
     return 0;
 }
 
@@ -428,43 +509,49 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args *ctx)
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     int id = ctx->args[1];
 #if defined(CONFIG_ARCH_HAS_SYSCALL_WRAPPER)
-    struct pt_regs regs = {};
-    bpf_probe_read(&regs, sizeof(struct pt_regs), (void*)ctx->args[0]);
+    struct pt_regs *regs = (struct pt_regs*)ctx->args[0];
 
     if (is_x86_compat(task)) {
 #if defined(bpf_target_x86)
-        args_tmp.args[0] = regs.bx;
-        args_tmp.args[1] = regs.cx;
-        args_tmp.args[2] = regs.dx;
-        args_tmp.args[3] = regs.si;
-        args_tmp.args[4] = regs.di;
-        args_tmp.args[5] = regs.bp;
+        args_tmp.args[0] = READ_KERN(regs->bx);
+        args_tmp.args[1] = READ_KERN(regs->cx);
+        args_tmp.args[2] = READ_KERN(regs->dx);
+        args_tmp.args[3] = READ_KERN(regs->si);
+        args_tmp.args[4] = READ_KERN(regs->di);
+        args_tmp.args[5] = READ_KERN(regs->bp);
 #endif // bpf_target_x86
     } else {
-        args_tmp.args[0] = PT_REGS_PARM1(&regs);
-        args_tmp.args[1] = PT_REGS_PARM2(&regs);
-        args_tmp.args[2] = PT_REGS_PARM3(&regs);
-        args_tmp.args[3] = PT_REGS_PARM4(&regs);
-        args_tmp.args[4] = PT_REGS_PARM5(&regs);
-        args_tmp.args[5] = PT_REGS_PARM6(&regs);
+        args_tmp.args[0] = READ_KERN(PT_REGS_PARM1(regs));
+        args_tmp.args[1] = READ_KERN(PT_REGS_PARM2(regs));
+        args_tmp.args[2] = READ_KERN(PT_REGS_PARM3(regs));
+#if defined(bpf_target_x86)
+        // x86-64: r10 used instead of rcx (4th param to a syscall)
+        args_tmp.args[3] = READ_KERN(regs->r10);
+#else
+        args_tmp.args[3] = READ_KERN(PT_REGS_PARM4(regs));
+#endif
+        args_tmp.args[4] = READ_KERN(PT_REGS_PARM5(regs));
+        args_tmp.args[5] = READ_KERN(PT_REGS_PARM6(regs));
     }
-#else // CONFIG_ARCH_HAS_SYSCALL_WRAPPER
-    args_tmp.args[0] = ctx->args[0];
-    args_tmp.args[1] = ctx->args[1];
-    args_tmp.args[2] = ctx->args[2];
-    args_tmp.args[3] = ctx->args[3];
-    args_tmp.args[4] = ctx->args[4];
-    args_tmp.args[5] = ctx->args[5];
-#endif // CONFIG_ARCH_HAS_SYSCALL_WRAPPER
+#else 
+    bpf_probe_read(args_tmp.args, sizeof(6 * sizeof(u64)), (void *)ctx->args);
+#endif
+    if (is_compat(task)) {
+        // Translate 32bit syscalls to 64bit syscalls so we can send to the correct handler
+        u32 *id_64 = bpf_map_lookup_elem(&sys_32_to_64_map, &id);
+        if (id_64 == 0)
+            return 0;
 
+        id = *id_64;
+    }
     // execve events may add new pids to the traced pids set
     if(id == SYS_EXECVE || id == SYS_EXECVEAT){
         //add_container_pid_ns();
         add_pid();
     }
-    if(!should_trace()){
-        return 0;
-    }
+    // if(!should_trace()){
+    //     return 0;
+    // }
     if(event_chosen(RAW_SYS_ENTER)) {
         struct buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
         if(submit_p == NULL)
@@ -491,39 +578,38 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args *ctx)
     return 0;
 }
 
-SEC("kprobe/sys_execve")
-int kprobe__sys_execve(void *ctx)
-{
-    return 0;
-}
-
-SEC("kprobe/sys_execveat")
-int kprobe__sys_execveat(void *ctx)
-{
-    return 0;
-}
 
 SEC("raw_tracepoint/sys_exit")
 int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args *ctx)
 {
     int id;
     long ret;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     struct pt_regs *regs = (struct pt_regs*)ctx->args[0];
     id = READ_KERN(regs->orig_ax);
     ret = ctx->args[1];
+    if (is_compat(task)) {
+        // Translate 32bit syscalls to 64bit syscalls so we can send to the correct handler
+        u32 *id_64 = bpf_map_lookup_elem(&sys_32_to_64_map, &id);
+        if (id_64 == 0)
+            return 0;
+
+        id = *id_64;
+    }
+
     struct args_t saved_args = {};
-    bool delete_args = true;
     if (load_args(&saved_args, id) != 0)
     {
         return 0;
     }
     del_args(id);
-    if (!should_trace())
-        return 0;
+    // if (!should_trace())
+    //     return 0;
     // fork events may add new pids to the traced pids set
     if (id == SYS_CLONE || id == SYS_FORK || id == SYS_VFORK) {
         //add_container_pid_ns();
         add_pid();
+        bpf_printk("raw_tracepoint_sys_exit add this id: %d to map", id);
     }
     if (event_chosen(RAW_SYS_EXIT)) {
         struct buf_t *submit_p = get_buf(SUBMIT_BUF_IDX);
@@ -555,6 +641,7 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args *ctx)
             }
             types = *saved_types;
             tags = *saved_tags;
+            bpf_printk("raw_tracepoint_sys_exit get params from map for:%d", id);
         } else {
             // We can't use saved args after execve syscall, as pointers are invalid
             // To avoid showing execve event both on entry and exit,
@@ -562,11 +649,97 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args *ctx)
             if (ret == 0)
                 submit_event = false;
         }
-        if (submit_event)
+        if (submit_event){
+            bpf_printk("raw_tracepoint_sys_exit called trace_ret_g for:%d, types: %ld, tags: %ld", id, types, tags);
             trace_ret_generic(ctx, id, types, tags, &saved_args, ret);
+        }
+            
     }
     return 0;
 }
+SEC("raw_tracepoint/sched_process_exit")
+int tracepoint__sched__sched_process_exit(struct bpf_raw_tracepoint_args *ctx)
+{
+    return 0;
+}
+
+
+SEC("raw_tracepoint/sys_execve")
+int syscall__execve(void *ctx)
+{
+    struct args_t args = {};
+    u8 argc = 0;
+    if(load_args(&args, SYS_EXECVE) != 0)
+    {
+        return -1;
+    }
+    if(!event_chosen(SYS_EXECVE))
+    {
+        return 0;
+    }
+    struct buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
+    if(submit_p == NULL)
+    {
+        return 0;
+    }
+    set_buf_off(SUBMIT_BUF_IDX, sizeof(struct context_t));
+    struct context_t context = {};
+    init_context(&context);
+    context.eventid = SYS_EXECVE;
+    context.argc = 2;
+    context.retval = 0;
+    save_context_to_buf(submit_p, (void*)&context);
+    u64 *tags = bpf_map_lookup_elem(&params_names_map, &context.eventid);
+    if(!tags)
+    {
+        return -1;
+    }
+    argc += save_str_to_buf(submit_p, (void *)args.args[0] /*filename*/, DEC_ARG(0, *tags));
+    argc += save_str_arr_to_buf(submit_p, (const char *const *)args.args[1] /*argv*/, DEC_ARG(1, *tags));
+    context.argc = argc;
+    save_context_to_buf(submit_p, (void*)&context);
+    events_perf_submit(ctx);
+    return 0;
+}
+
+
+SEC("raw_tracepoint/sys_execveat")
+int syscall__execveat(void *ctx)
+{   
+    struct args_t args = {};
+    u8 argnum = 0;
+
+    if (load_args(&args, SYS_EXECVEAT) != 0)
+        return -1;
+
+    if (!event_chosen(SYS_EXECVEAT))
+        return 0;
+
+    struct buf_t *submit_p = get_buf(SUBMIT_BUF_IDX);
+    if (submit_p == NULL)
+        return 0;
+    set_buf_off(SUBMIT_BUF_IDX, sizeof(struct context_t));
+
+    struct context_t context = {};
+    init_context(&context);
+    context.eventid = SYS_EXECVEAT;
+    context.argc = 4;
+    context.retval = 0;
+    u64 *tags = bpf_map_lookup_elem(&params_names_map, &context.eventid);
+    if (!tags) {
+        return -1;
+    }
+
+    argnum += save_to_buf(submit_p, (void*)&args.args[0] /*dirfd*/, sizeof(int), INT_T, DEC_ARG(0, *tags));
+    argnum += save_str_to_buf(submit_p, (void *)args.args[1] /*pathname*/, DEC_ARG(1, *tags));
+    argnum += save_str_arr_to_buf(submit_p, (const char *const *)args.args[2] /*argv*/, DEC_ARG(2, *tags));
+    argnum += save_to_buf(submit_p, (void*)&args.args[4] /*flags*/, sizeof(int), INT_T, DEC_ARG(4, *tags));
+    context.argc = argnum;
+    save_context_to_buf(submit_p, (void*)&context);
+    events_perf_submit(ctx);
+    return 0;
+}
+
 
 
 char LICENSE[] SEC("license") = "GPL";
