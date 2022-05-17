@@ -81,6 +81,7 @@ type EventConfig struct {
 // Non syscalls events (used by all architectures)
 // events should match defined values in ebpf code
 const (
+	// 14-1个
 	SysEnterEventID int32 = iota + 1000
 	SysExitEventID
 	DoExitEventID
@@ -94,10 +95,12 @@ const (
 	SchedProcessExitEventID
 	CommitCredsEventID
 	SwitchTaskNSEventID
-	MaxEventID
+	MaxEventID //没用
 )
 
 // EventsIDToEvent is list of supported events, indexed by their ID
+// 366个
+// TODO 事件ID
 var EventsIDToEvent = map[int32]EventConfig{
 	ReadEventID:                {ID: ReadEventID, ID32Bit: sys32read, Name: "read", Probes: []probe{{event: "read", attach: sysCall, fn: "read"}}, Sets: []string{"syscalls", "fs", "fs_read_write"}},
 	WriteEventID:               {ID: WriteEventID, ID32Bit: sys32write, Name: "write", Probes: []probe{{event: "write", attach: sysCall, fn: "write"}}, Sets: []string{"syscalls", "fs", "fs_read_write"}},
@@ -452,6 +455,7 @@ var EventsIDToEvent = map[int32]EventConfig{
 	Faccessat2EventID:          {ID: Faccessat2EventID, ID32Bit: sys32faccessat2, Name: "faccessat2", Probes: []probe{{event: "faccessat2", attach: sysCall, fn: "faccessat2"}}, Sets: []string{"default", "syscalls", "fs", "fs_file_attr"}},
 	ProcessMadviseEventID:      {ID: ProcessMadviseEventID, ID32Bit: sys32process_madvise, Name: "process_madvise", Probes: []probe{{event: "process_madvise", attach: sysCall, fn: "process_madvise"}}, Sets: []string{"syscalls"}},
 	EpollPwait2EventID:         {ID: EpollPwait2EventID, ID32Bit: sys32epoll_pwait2, Name: "epoll_pwait2", Probes: []probe{{event: "epoll_pwait2", attach: sysCall, fn: "epoll_pwait2"}}, Sets: []string{"syscalls", "fs", "fs_mux_io"}},
+
 	SysEnterEventID:            {ID: SysEnterEventID, ID32Bit: sys32undefined, Name: "sys_enter", Probes: []probe{{event: "raw_syscalls:sys_enter", attach: rawTracepoint, fn: "tracepoint__raw_syscalls__sys_enter"}}, EssentialEvent: true, Sets: []string{}},
 	SysExitEventID:             {ID: SysExitEventID, ID32Bit: sys32undefined, Name: "sys_exit", Probes: []probe{{event: "raw_syscalls:sys_exit", attach: rawTracepoint, fn: "tracepoint__raw_syscalls__sys_exit"}}, EssentialEvent: true, Sets: []string{}},
 	DoExitEventID:              {ID: DoExitEventID, ID32Bit: sys32undefined, Name: "do_exit", Probes: []probe{{event: "do_exit", attach: kprobe, fn: "trace_do_exit"}}, Sets: []string{"proc", "proc_life"}},
@@ -468,6 +472,8 @@ var EventsIDToEvent = map[int32]EventConfig{
 }
 
 // EventsIDToParams is list of the parameters (name and type) used by the events
+// 354个
+// TODO 事件参数列表
 var EventsIDToParams = map[int32][]ArgMeta{
 	ReadEventID:                {{Type: "int", Name: "fd"}, {Type: "void*", Name: "buf"}, {Type: "size_t", Name: "count"}},
 	WriteEventID:               {{Type: "int", Name: "fd"}, {Type: "void*", Name: "buf"}, {Type: "size_t", Name: "count"}},

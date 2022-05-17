@@ -100,8 +100,28 @@
 #define SCHED_PROCESS_EXIT    1010
 #define MAX_EVENT_ID          1011
 
-/*=============================== INTERNAL STRUCTS ===========================*/
+#define TAIL_VFS_WRITE      0
+#define TAIL_VFS_WRITEV     1
+#define TAIL_SEND_BIN       2
+#define MAX_TAIL_CALL       3
 
+#define CONFIG_MODE             0
+#define CONFIG_SHOW_SYSCALL     1
+#define CONFIG_EXEC_ENV         2
+#define CONFIG_CAPTURE_FILES    3
+#define CONFIG_EXTRACT_DYN_CODE 4
+#define CONFIG_TRACEE_PID       5
+#define CONFIG_FILTER_UID       6
+
+#define MODE_PROCESS_ALL        1
+#define MODE_PROCESS_NEW        2
+#define MODE_PROCESS_LIST       3
+#define MODE_CONTAINER_ALL      4
+#define MODE_CONTAINER_NEW      5
+
+/*=============================== INTERNAL STRUCTS ===========================*/
+typedef struct context_t context_t;
+typedef struct buf_t buf_t;
 struct context_t {
     u64 ts;                     // Timestamp
     u32 pid;                    // PID as in the userspace term
@@ -118,9 +138,9 @@ struct context_t {
 };
 
 
-struct args_t {
+typedef struct args_t {
     unsigned long args[6];
-};
+}args_t;
 
 
 struct buf_t {
@@ -149,200 +169,181 @@ BPF_PERCPU_ARRAY(bufs, struct buf_t, MAX_BUFFERS);
 // Holds offsets to bufs respectively
 BPF_PERCPU_ARRAY(bufs_off, u32, MAX_BUFFERS);
 // Encoded parameters types for event
-BPF_HASH(params_types_map, u32, u64); 
+BPF_HASH(params_types_map, u32, u64);
 // Encoded parameters names for event                  
 BPF_HASH(params_names_map, u32, u64);
 // Map 32bit syscalls numbers to 64bit syscalls numbers                   
 BPF_HASH(sys_32_to_64_map, u32, u32);
+
+BPF_PROG_ARRAY(prog_array, MAX_TAIL_CALL);          // Used to store programs for tail calls
+BPF_PROG_ARRAY(sys_enter_tails, MAX_EVENT_ID);      // Used to store programs for tail calls
+BPF_PROG_ARRAY(sys_exit_tails, MAX_EVENT_ID);       // Used to store programs for tail calls
 
 /*================================== EVENTS ====================================*/
 BPF_PERF_OUTPUT(events);
 
 /*================ KERNEL VERSION DEPENDANT HELPER FUNCTIONS =================*/
 
-static __always_inline u32 get_mnt_ns_id(struct nsproxy *ns)
-{
+static __always_inline u32 get_mnt_ns_id(struct nsproxy* ns) {
     struct mnt_namespace* mntns = READ_KERN(ns->mnt_ns);
     return READ_KERN(mntns->ns.inum);
 }
 
-static __always_inline u32 get_pid_ns_id(struct nsproxy *ns)
-{
+static __always_inline u32 get_pid_ns_id(struct nsproxy* ns) {
     struct pid_namespace* pidns = READ_KERN(ns->pid_ns_for_children);
     return READ_KERN(pidns->ns.inum);
 }
 
-static __always_inline u32 get_uts_ns_id(struct nsproxy *ns)
-{
+static __always_inline u32 get_uts_ns_id(struct nsproxy* ns) {
     struct uts_namespace* uts_ns = READ_KERN(ns->uts_ns);
     return READ_KERN(uts_ns->ns.inum);
 }
 
-static __always_inline u32 get_ipc_ns_id(struct nsproxy *ns)
-{
+static __always_inline u32 get_ipc_ns_id(struct nsproxy* ns) {
     struct ipc_namespace* ipc_ns = READ_KERN(ns->ipc_ns);
     return READ_KERN(ipc_ns->ns.inum);
 }
 
-static __always_inline u32 get_net_ns_id(struct nsproxy *ns)
-{
+static __always_inline u32 get_net_ns_id(struct nsproxy* ns) {
     struct net* net_ns = READ_KERN(ns->net_ns);
-    return READ_KERN(net_ns ->ns.inum);
+    return READ_KERN(net_ns->ns.inum);
 }
 
-static __always_inline u32 get_cgroup_ns_id(struct nsproxy *ns)
-{
+static __always_inline u32 get_cgroup_ns_id(struct nsproxy* ns) {
     struct cgroup_namespace* cgroup_ns = READ_KERN(ns->cgroup_ns);
     return READ_KERN(cgroup_ns->ns.inum);
 }
 
-static __always_inline u32 get_task_mnt_ns_id(struct task_struct *task)
-{
+static __always_inline u32 get_task_mnt_ns_id(struct task_struct* task) {
     return get_mnt_ns_id(READ_KERN(task->nsproxy));
 }
 
-static __always_inline u32 get_task_pid_ns_id(struct task_struct *task)
-{
+static __always_inline u32 get_task_pid_ns_id(struct task_struct* task) {
     return get_pid_ns_id(READ_KERN(task->nsproxy));
 }
 
-static __always_inline u32 get_task_uts_ns_id(struct task_struct *task)
-{
+static __always_inline u32 get_task_uts_ns_id(struct task_struct* task) {
     return get_uts_ns_id(READ_KERN(task->nsproxy));
 }
 
-static __always_inline u32 get_task_ipc_ns_id(struct task_struct *task)
-{
+static __always_inline u32 get_task_ipc_ns_id(struct task_struct* task) {
     return get_ipc_ns_id(READ_KERN(task->nsproxy));
 }
 
-static __always_inline u32 get_task_net_ns_id(struct task_struct *task)
-{
+static __always_inline u32 get_task_net_ns_id(struct task_struct* task) {
     return get_net_ns_id(READ_KERN(task->nsproxy));
 }
 
-static __always_inline u32 get_task_cgroup_ns_id(struct task_struct *task)
-{
+static __always_inline u32 get_task_cgroup_ns_id(struct task_struct* task) {
     return get_cgroup_ns_id(READ_KERN(task->nsproxy));
 }
 
-static __always_inline u32 get_task_ns_pid(struct task_struct *task)
-{
+static __always_inline u32 get_task_ns_pid(struct task_struct* task) {
     int nr = 0;
-    struct nsproxy *namespaceproxy = READ_KERN(task->nsproxy);
-    struct pid_namespace *pid_ns_children = READ_KERN(namespaceproxy->pid_ns_for_children);
+    struct nsproxy* namespaceproxy = READ_KERN(task->nsproxy);
+    struct pid_namespace* pid_ns_children = READ_KERN(namespaceproxy->pid_ns_for_children);
     unsigned int level = READ_KERN(pid_ns_children->level);
 
     if (bpf_core_type_exists(struct pid_link)) {
-        struct task_struct___older_v50 *t = (void *) task;
-        struct pid_link *pl = READ_KERN(t->pids);
-        struct pid *p = READ_KERN(pl[PIDTYPE_MAX].pid);
+        struct task_struct___older_v50* t = (void*)task;
+        struct pid_link* pl = READ_KERN(t->pids);
+        struct pid* p = READ_KERN(pl[PIDTYPE_MAX].pid);
         nr = READ_KERN(p->numbers[level].nr);
-    } else {
-        struct pid *tpid = READ_KERN(task->thread_pid);
+    }
+    else {
+        struct pid* tpid = READ_KERN(task->thread_pid);
         nr = READ_KERN(tpid->numbers[level].nr);
     }
 
     return nr;
 }
 
-static __always_inline u32 get_task_ns_tgid(struct task_struct *task)
-{
+static __always_inline u32 get_task_ns_tgid(struct task_struct* task) {
     int nr = 0;
-    struct nsproxy *namespaceproxy = READ_KERN(task->nsproxy);
-    struct pid_namespace *pid_ns_children = READ_KERN(namespaceproxy->pid_ns_for_children);
+    struct nsproxy* namespaceproxy = READ_KERN(task->nsproxy);
+    struct pid_namespace* pid_ns_children = READ_KERN(namespaceproxy->pid_ns_for_children);
     unsigned int level = READ_KERN(pid_ns_children->level);
-    struct task_struct *group_leader = READ_KERN(task->group_leader);
+    struct task_struct* group_leader = READ_KERN(task->group_leader);
 
     if (bpf_core_type_exists(struct pid_link)) {
-        struct task_struct___older_v50 *gl = (void *) group_leader;
-        struct pid_link *pl = READ_KERN(gl->pids);
-        struct pid *p = READ_KERN(pl[PIDTYPE_MAX].pid);
+        struct task_struct___older_v50* gl = (void*)group_leader;
+        struct pid_link* pl = READ_KERN(gl->pids);
+        struct pid* p = READ_KERN(pl[PIDTYPE_MAX].pid);
         nr = READ_KERN(p->numbers[level].nr);
-    } else {
-        struct pid *tpid = READ_KERN(group_leader->thread_pid);
+    }
+    else {
+        struct pid* tpid = READ_KERN(group_leader->thread_pid);
         nr = READ_KERN(tpid->numbers[level].nr);
     }
     return nr;
 }
 
-static __always_inline u32 get_task_ns_ppid(struct task_struct *task)
-{
+static __always_inline u32 get_task_ns_ppid(struct task_struct* task) {
     int nr = 0;
-    struct task_struct *real_parent = READ_KERN(task->real_parent);
-    struct nsproxy *namespaceproxy = READ_KERN(real_parent->nsproxy);
-    struct pid_namespace *pid_ns_children = READ_KERN(namespaceproxy->pid_ns_for_children);
+    struct task_struct* real_parent = READ_KERN(task->real_parent);
+    struct nsproxy* namespaceproxy = READ_KERN(real_parent->nsproxy);
+    struct pid_namespace* pid_ns_children = READ_KERN(namespaceproxy->pid_ns_for_children);
     unsigned int level = READ_KERN(pid_ns_children->level);
     if (bpf_core_type_exists(struct pid_link)) {
-        struct task_struct___older_v50 *rp = (void *) real_parent;
-        struct pid_link *pl = READ_KERN(rp->pids);
-        struct pid *p = READ_KERN(pl[PIDTYPE_MAX].pid);
+        struct task_struct___older_v50* rp = (void*)real_parent;
+        struct pid_link* pl = READ_KERN(rp->pids);
+        struct pid* p = READ_KERN(pl[PIDTYPE_MAX].pid);
         nr = READ_KERN(p->numbers[level].nr);
-    } else {
-        struct pid *tpid = READ_KERN(real_parent->thread_pid);
+    }
+    else {
+        struct pid* tpid = READ_KERN(real_parent->thread_pid);
         nr = READ_KERN(tpid->numbers[level].nr);
     }
 
     return nr;
 }
 
-static __always_inline char * get_task_uts_name(struct task_struct *task)
-{
-    struct nsproxy *np = READ_KERN(task->nsproxy);
-    struct uts_namespace *uts_ns = READ_KERN(np->uts_ns);
+static __always_inline char* get_task_uts_name(struct task_struct* task) {
+    struct nsproxy* np = READ_KERN(task->nsproxy);
+    struct uts_namespace* uts_ns = READ_KERN(np->uts_ns);
     return READ_KERN(uts_ns->name.nodename);
 }
 
-static __always_inline u32 get_task_ppid(struct task_struct *task)
-{
-    struct task_struct *parent = READ_KERN(task->real_parent);
+static __always_inline u32 get_task_ppid(struct task_struct* task) {
+    struct task_struct* parent = READ_KERN(task->real_parent);
     return READ_KERN(parent->tgid);
 }
 
-static __always_inline u64 get_task_start_time(struct task_struct *task)
-{
+static __always_inline u64 get_task_start_time(struct task_struct* task) {
     return READ_KERN(task->start_time);
 }
 
-static __always_inline u32 get_task_host_pid(struct task_struct *task)
-{
+static __always_inline u32 get_task_host_pid(struct task_struct* task) {
     return READ_KERN(task->pid);
 }
 
-static __always_inline u32 get_task_host_tgid(struct task_struct *task)
-{
+static __always_inline u32 get_task_host_tgid(struct task_struct* task) {
     return READ_KERN(task->tgid);
 }
 
-static __always_inline struct task_struct * get_parent_task(struct task_struct *task)
-{
+static __always_inline struct task_struct* get_parent_task(struct task_struct* task) {
     return READ_KERN(task->real_parent);
 }
 
-static __always_inline u32 get_task_exit_code(struct task_struct *task)
-{
+static __always_inline u32 get_task_exit_code(struct task_struct* task) {
     return READ_KERN(task->exit_code);
 }
 
-static __always_inline int get_task_parent_flags(struct task_struct *task)
-{
-    struct task_struct *parent = READ_KERN(task->real_parent);
+static __always_inline int get_task_parent_flags(struct task_struct* task) {
+    struct task_struct* parent = READ_KERN(task->real_parent);
     return READ_KERN(parent->flags);
 }
 
-static __always_inline const struct cred *get_task_real_cred(struct task_struct *task)
-{
+static __always_inline const struct cred* get_task_real_cred(struct task_struct* task) {
     return READ_KERN(task->real_cred);
 }
 
-static __always_inline const char * get_binprm_filename(struct linux_binprm *bprm)
-{
+static __always_inline const char* get_binprm_filename(struct linux_binprm* bprm) {
     return READ_KERN(bprm->filename);
 }
 
-static __always_inline const char * get_cgroup_dirname(struct cgroup *cgrp)
-{
-    struct kernfs_node *kn = READ_KERN(cgrp->kn);
+static __always_inline const char* get_cgroup_dirname(struct cgroup* cgrp) {
+    struct kernfs_node* kn = READ_KERN(cgrp->kn);
 
     if (kn == NULL)
         return NULL;
@@ -350,9 +351,8 @@ static __always_inline const char * get_cgroup_dirname(struct cgroup *cgrp)
     return READ_KERN(kn->name);
 }
 
-static __always_inline const u64 get_cgroup_id(struct cgroup *cgrp)
-{
-    struct kernfs_node *kn = READ_KERN(cgrp->kn);
+static __always_inline const u64 get_cgroup_id(struct cgroup* cgrp) {
+    struct kernfs_node* kn = READ_KERN(cgrp->kn);
 
     if (kn == NULL)
         return 0;
@@ -360,8 +360,8 @@ static __always_inline const u64 get_cgroup_id(struct cgroup *cgrp)
     u64 id; // was union kernfs_node_id before 5.5, can read it as u64 in both situations
 
     if (bpf_core_type_exists(union kernfs_node_id)) {
-        struct kernfs_node___older_v55 *kn_old = (void *)kn;
-        struct kernfs_node___rh8 *kn_rh8 = (void *)kn;
+        struct kernfs_node___older_v55* kn_old = (void*)kn;
+        struct kernfs_node___rh8* kn_rh8 = (void*)kn;
 
         if (bpf_core_field_exists(kn_rh8->id)) {
             // RHEL8 has both types declared: union and u64:
@@ -369,12 +369,14 @@ static __always_inline const u64 get_cgroup_id(struct cgroup *cgrp)
             //     rh->rh_kabi_hidden_172->id
             // pointing to the same data
             bpf_core_read(&id, sizeof(u64), &kn_rh8->id);
-        } else {
+        }
+        else {
             // all other regular kernels bellow v5.5
             bpf_core_read(&id, sizeof(u64), &kn_old->id);
         }
 
-    } else {
+    }
+    else {
         // kernel v5.5 and above
         bpf_core_read(&id, sizeof(u64), &kn->id);
     }
@@ -382,22 +384,19 @@ static __always_inline const u64 get_cgroup_id(struct cgroup *cgrp)
     return id;
 }
 
-static __always_inline const u32 get_cgroup_hierarchy_id(struct cgroup *cgrp)
-{
-    struct cgroup_root *root = READ_KERN(cgrp->root);
+static __always_inline const u32 get_cgroup_hierarchy_id(struct cgroup* cgrp) {
+    struct cgroup_root* root = READ_KERN(cgrp->root);
     return READ_KERN(root->hierarchy_id);
 }
 
-static __always_inline const u64 get_cgroup_v1_subsys0_id(struct task_struct *task)
-{
-    struct css_set *cgroups = READ_KERN(task->cgroups);
-    struct cgroup_subsys_state *subsys0 = READ_KERN(cgroups->subsys[0]);
-    struct cgroup *cgroup = READ_KERN(subsys0->cgroup);
+static __always_inline const u64 get_cgroup_v1_subsys0_id(struct task_struct* task) {
+    struct css_set* cgroups = READ_KERN(task->cgroups);
+    struct cgroup_subsys_state* subsys0 = READ_KERN(cgroups->subsys[0]);
+    struct cgroup* cgroup = READ_KERN(subsys0->cgroup);
     return get_cgroup_id(cgroup);
 }
 
-static __always_inline bool is_x86_compat(struct task_struct *task)
-{
+static __always_inline bool is_x86_compat(struct task_struct* task) {
 #if defined(bpf_target_x86)
     return READ_KERN(task->thread_info.status) & TS_COMPAT;
 #else
@@ -405,8 +404,7 @@ static __always_inline bool is_x86_compat(struct task_struct *task)
 #endif
 }
 
-static __always_inline bool is_arm64_compat(struct task_struct *task)
-{
+static __always_inline bool is_arm64_compat(struct task_struct* task) {
 #if defined(bpf_target_arm64)
     return READ_KERN(task->thread_info.flags) & _TIF_32BIT;
 #else
@@ -414,8 +412,7 @@ static __always_inline bool is_arm64_compat(struct task_struct *task)
 #endif
 }
 
-static __always_inline bool is_compat(struct task_struct *task)
-{
+static __always_inline bool is_compat(struct task_struct* task) {
 #if defined(bpf_target_x86)
     return is_x86_compat(task);
 #elif defined(bpf_target_arm64)

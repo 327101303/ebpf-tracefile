@@ -238,6 +238,16 @@ func (t *Ctrace) populateBPFMaps() error {
 		sys32to64BPFMap.Update(event.ID32Bit, event.ID)
 	}
 
+	// Initialize config and pids maps
+	bpfConfigMap, _ := t.bpfModule.GetMap("config_map")
+	bpfConfigMap.Update(uint32(configDetectOrigSyscall), 0)
+	bpfConfigMap.Update(uint32(configExecEnv), 0)
+	bpfConfigMap.Update(uint32(configStackAddresses), 0)
+	bpfConfigMap.Update(uint32(configCaptureFiles), 0)
+	bpfConfigMap.Update(uint32(configExtractDynCode), 0)
+	bpfConfigMap.Update(uint32(configTraceePid), uint32(os.Getpid()))
+	// bpfConfigMap.Update(uint32(configFilterByUid), uint32(len(t.config.Filter.UIDs)))
+
 	eventsParams := t.initEventsParams()
 
 	paramsTypesBPFMap, _ := t.bpfModule.GetMap("params_types_map")
@@ -312,6 +322,7 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 	// Compile final list of events to trace including essential events
 	for id, event := range EventsIDToEvent {
 		// If an essential event was not requested by the user, set its map value to false
+		// 去掉未指定的事件
 		if event.EssentialEvent && !t.eventsToTrace[id] {
 			t.eventsToTrace[id] = false
 		}
@@ -375,7 +386,7 @@ func (t *Ctrace) initBPF() error {
 		}
 	}
 	for event, ok := range t.eventsToTrace {
-		log.Println("eventsToTrace " + strconv.FormatInt(int64(event), 10) + strconv.FormatBool(ok))
+		log.Println("eventsToTrace ", strconv.FormatInt(int64(event), 10), strconv.FormatBool(ok))
 	}
 	log.Println("initBPF: BPF Loading object")
 	err = t.bpfModule.BPFLoadObject()
@@ -404,11 +415,11 @@ func (t *Ctrace) initBPF() error {
 			if err != nil {
 				return fmt.Errorf("error getting program %s: %v", probe.fn, err)
 			}
-			//log.Println("got program", probe.fn)
+			// log.Println("got program", probe.fn)
 			if probe.attach == rawTracepoint && !supportRawTracepoints {
 				// We fallback to regular tracepoint in case kernel doesn't support raw tracepoints (< 4.17)
 				probe.attach = tracepoint
-				//log.Println("set" + probe.fn + "probe.attach from rawTracepoint to tracepoint")
+				log.Println("set" + probe.fn + "probe.attach from rawTracepoint to tracepoint")
 			}
 			switch probe.attach {
 			case kprobe:
@@ -424,7 +435,7 @@ func (t *Ctrace) initBPF() error {
 			if err != nil {
 				return fmt.Errorf("error attaching event %s: %v", probe.event, err)
 			}
-			log.Println("attached program", probe.fn)
+			log.Println("attached program", probe.event, probe.fn, probe.attach)
 		}
 	}
 
