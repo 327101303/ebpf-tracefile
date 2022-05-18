@@ -21,7 +21,9 @@
 #define MAX_STRING_SIZE     4096          // Choosing this value to be the same as PATH_MAX
 #define MAX_STR_ARR_ELEM    40            // String array elements number should be bounded due to instructions limit
 #define MAX_PATH_PREF_SIZE  64            // Max path prefix should be bounded due to instructions limit
-
+// #define MAX_STACK_ADDRESSES 1024          // Max amount of different stack trace addresses to buffer in the Map
+// #define MAX_STACK_DEPTH     20            // Max depth of each stack trace to track
+#define MAX_STR_FILTER_SIZE 16            // Max string filter size should be bounded to the size of the compared values (comm, uts)
 
 // buffer overview: submit---string---file
 #define SUBMIT_BUF_IDX      0
@@ -105,13 +107,27 @@
 #define TAIL_SEND_BIN       2
 #define MAX_TAIL_CALL       3
 
-#define CONFIG_MODE             0
-#define CONFIG_SHOW_SYSCALL     1
-#define CONFIG_EXEC_ENV         2
-#define CONFIG_CAPTURE_FILES    3
-#define CONFIG_EXTRACT_DYN_CODE 4
-#define CONFIG_TRACEE_PID       5
-#define CONFIG_FILTER_UID       6
+#define CONFIG_MODE                 0
+#define CONFIG_SHOW_SYSCALL         1
+#define CONFIG_EXEC_ENV             2
+#define CONFIG_CAPTURE_FILES        3
+#define CONFIG_EXTRACT_DYN_CODE     4
+#define CONFIG_TRACEE_PID           5
+#define CONFIG_CAPTURE_STACK_TRACES 6
+#define CONFIG_UID_FILTER           7
+#define CONFIG_MNT_NS_FILTER        8
+#define CONFIG_PID_NS_FILTER        9
+#define CONFIG_UTS_NS_FILTER        10
+#define CONFIG_COMM_FILTER          11
+#define CONFIG_PID_FILTER           12
+#define CONFIG_CONT_FILTER          13
+#define CONFIG_FOLLOW_FILTER        14
+#define CONFIG_NEW_PID_FILTER       15
+#define CONFIG_NEW_CONT_FILTER      16
+
+// get_config(CONFIG_XXX_FILTER) returns 0 if not enabled
+#define FILTER_IN  1
+#define FILTER_OUT 2
 
 #define MODE_PROCESS_ALL        1
 #define MODE_PROCESS_NEW        2
@@ -127,6 +143,9 @@ struct context_t {
     u32 pid;                    // PID as in the userspace term
     u32 tid;                    // TID as in the userspace term
     u32 ppid;                   // Parent PID as in the userspace term
+    u32 host_pid;               // PID in host pid namespace
+    u32 host_tid;               // TID in host pid namespace
+    u32 host_ppid;              // Parent PID in host pid namespace
     u32 uid;
     u32 mnt_id;
     u32 pid_id;
@@ -154,6 +173,9 @@ struct syscall_data_t {
     unsigned long ret;             // Syscall ret val. May be used by syscall exit tail calls.
 };
 
+typedef struct string_filter {
+    char str[MAX_STR_FILTER_SIZE];
+} string_filter_t;
 
 /*=================================== MAPS =====================================*/
 // Various configurations
@@ -164,6 +186,9 @@ BPF_HASH(chosen_events_map, u32, u32);
 BPF_HASH(containers_map, u32, u32);
 // Persist args info between function entry and return
 BPF_HASH(args_map, u64, struct args_t);
+
+BPF_HASH(comm_filter, string_filter_t, u32);            // Used to filter events by command name
+
 // Percpu global buffer variables
 BPF_PERCPU_ARRAY(bufs, struct buf_t, MAX_BUFFERS);
 // Holds offsets to bufs respectively

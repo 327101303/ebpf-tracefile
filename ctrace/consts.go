@@ -23,6 +23,16 @@ const (
 	configNewContFilter
 )
 
+const (
+	filterNotEqual uint32 = iota
+	filterEqual
+)
+
+const (
+	filterIn  uint8 = 1
+	filterOut uint8 = 2
+)
+
 // argType is an enum that encodes the argument types that the BPF program may write to the shared buffer
 // argument types should match defined values in ebpf code
 type argType uint8

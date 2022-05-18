@@ -23,11 +23,34 @@ import (
 
 // CtraceConfig is a struct containing user defined configuration of ctrace
 type CtraceConfig struct {
-	EventsToTrace  []int32
+	// EventsToTrace  []int32
+	Filter         *Filter
 	OutputFormat   string
 	PerfBufferSize int
 	EventsPath     string
 	ErrorsPath     string
+}
+
+type Filter struct {
+	EventsToTrace []int32
+	// UIDFilter     *UintFilter
+	// PIDFilter     *UintFilter
+	// NewPidFilter  *BoolFilter
+	// MntNSFilter   *UintFilter
+	// PidNSFilter   *UintFilter
+	// UTSFilter     *StringFilter
+	CommFilter *StringFilter
+	// ContFilter    *BoolFilter
+	// NewContFilter *BoolFilter
+	// RetFilter     *RetFilter
+	// ArgFilter     *ArgFilter
+	// Follow        bool
+}
+
+type StringFilter struct {
+	Equal    []string
+	NotEqual []string
+	Enabled  bool
 }
 
 type counter int32
@@ -113,15 +136,25 @@ func supportRawTP() (bool, error) {
 
 // Validate does static validation of the configuration
 func (tc CtraceConfig) Validate() error {
-	if tc.EventsToTrace == nil {
+	// if tc.EventsToTrace == nil {
+	// 	return fmt.Errorf("eventsToTrace is nil")
+	// }
+	// for _, e := range tc.EventsToTrace {
+	// 	_, ok := EventsIDToEvent[e]
+	// 	if !ok {
+	// 		return fmt.Errorf("invalid event to trace: %d", e)
+	// 	}
+	// }
+	if tc.Filter.EventsToTrace == nil {
 		return fmt.Errorf("eventsToTrace is nil")
 	}
-	for _, e := range tc.EventsToTrace {
-		_, ok := EventsIDToEvent[e]
-		if !ok {
+
+	for _, e := range tc.Filter.EventsToTrace {
+		if _, ok := EventsIDToEvent[e]; !ok {
 			return fmt.Errorf("invalid event to trace: %d", e)
 		}
 	}
+
 	if tc.OutputFormat != "table" && tc.OutputFormat != "json" && tc.OutputFormat != "gob" {
 		return fmt.Errorf("unrecognized output format: %s", tc.OutputFormat)
 	}
@@ -223,6 +256,42 @@ func (t *Ctrace) initEventsParams() map[int32][]eventParam {
 	return eventsParams
 }
 
+func (t *Ctrace) setStringFilter(filter *StringFilter, filterMapName string, configFilter bpfConfig) error {
+	if !filter.Enabled {
+		return nil
+	}
+
+	filterMap, err := t.bpfModule.GetMap(filterMapName)
+	if err != nil {
+		return err
+	}
+	for i := 0; i < len(filter.Equal); i++ {
+		err = filterMap.Update([]byte(filter.Equal[i]), filterEqual)
+		if err != nil {
+			return err
+		}
+	}
+	for i := 0; i < len(filter.NotEqual); i++ {
+		err = filterMap.Update([]byte(filter.NotEqual[i]), filterNotEqual)
+		if err != nil {
+			return err
+		}
+	}
+
+	bpfConfigMap, err := t.bpfModule.GetMap("config_map")
+	if err != nil {
+		return err
+	}
+	if len(filter.Equal) > 0 && len(filter.NotEqual) == 0 {
+		bpfConfigMap.Update(uint32(configFilter), filterIn)
+	} else {
+		bpfConfigMap.Update(uint32(configFilter), filterOut)
+	}
+
+	return nil
+}
+
+// TODO populateBPFMaps
 func (t *Ctrace) populateBPFMaps() error {
 	chosenEventsMap, _ := t.bpfModule.GetMap("chosen_events_map")
 	for e, chosen := range t.eventsToTrace {
@@ -247,6 +316,11 @@ func (t *Ctrace) populateBPFMaps() error {
 	bpfConfigMap.Update(uint32(configExtractDynCode), 0)
 	bpfConfigMap.Update(uint32(configTraceePid), uint32(os.Getpid()))
 	// bpfConfigMap.Update(uint32(configFilterByUid), uint32(len(t.config.Filter.UIDs)))
+
+	err := t.setStringFilter(t.config.Filter.CommFilter, "comm_filter", configCommFilter)
+	if err != nil {
+		return fmt.Errorf("error setting comm filter: %v", err)
+	}
 
 	eventsParams := t.initEventsParams()
 
@@ -313,8 +387,8 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 	// }
 	// t.containers = c
 	log.Println("New: set eventsToTrace")
-	t.eventsToTrace = make(map[int32]bool, len(t.config.EventsToTrace))
-	for _, e := range t.config.EventsToTrace {
+	t.eventsToTrace = make(map[int32]bool, len(t.config.Filter.EventsToTrace))
+	for _, e := range t.config.Filter.EventsToTrace {
 		// Map value is true iff events requested by the user
 		t.eventsToTrace[e] = true
 	}
@@ -385,9 +459,9 @@ func (t *Ctrace) initBPF() error {
 			}
 		}
 	}
-	for event, ok := range t.eventsToTrace {
-		log.Println("eventsToTrace ", strconv.FormatInt(int64(event), 10), strconv.FormatBool(ok))
-	}
+	// for event, ok := range t.eventsToTrace {
+	// 	log.Println("eventsToTrace ", strconv.FormatInt(int64(event), 10), strconv.FormatBool(ok))
+	// }
 	log.Println("initBPF: BPF Loading object")
 	err = t.bpfModule.BPFLoadObject()
 	if err != nil {
