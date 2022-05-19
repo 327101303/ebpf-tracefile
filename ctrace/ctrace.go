@@ -84,6 +84,9 @@ type context struct {
 	Pid      uint32
 	Tid      uint32
 	Ppid     uint32
+	HostPid  uint32
+	HostTid  uint32
+	HostPpid uint32
 	Uid      uint32
 	Mnt_id   uint32
 	Pid_id   uint32
