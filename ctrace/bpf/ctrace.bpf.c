@@ -79,6 +79,60 @@ static __always_inline u32* get_buf_off(int buf_idx) {
     return bpf_map_lookup_elem(&bufs_off, &buf_idx);
 }
 
+// TODO save_to_buf
+static __always_inline int save_to_buf(buf_t* submit_p, void* ptr, u32 size, u8 type, u8 tag) {
+    // The biggest element that can be saved with this function should be defined here
+#define MAX_ELEMENT_SIZE sizeof(struct sockaddr_un)
+    if (type == 0)
+        return 0;
+
+    if (size == 0)
+        return 0;
+
+    u32* off = get_buf_off(SUBMIT_BUF_IDX);
+    if (off == NULL)
+        return 0;
+    if (*off > MAX_PERCPU_BUFSIZE - MAX_ELEMENT_SIZE)
+        // Satisfy validator for probe read
+        return 0;
+
+    // Save argument type
+    int rc = bpf_probe_read(&(submit_p->buf[*off]), 1, &type);
+    if (rc != 0)
+        return 0;
+
+    *off += 1;
+
+    if (*off > MAX_PERCPU_BUFSIZE - MAX_ELEMENT_SIZE)
+        // Satisfy validator for probe read
+        return 0;
+
+    // Save argument tag
+    rc = bpf_probe_read(&(submit_p->buf[*off]), 1, &tag);
+    if (rc != 0) {
+        *off -= 1;
+        return 0;
+    }
+    *off += 1;
+
+    if (*off > MAX_PERCPU_BUFSIZE - MAX_ELEMENT_SIZE) {
+        // Satisfy validator for probe read
+        *off -= 2;
+        return 0;
+    }
+
+    // Read into buffer
+    rc = bpf_probe_read(&(submit_p->buf[*off]), size, ptr);
+    if (rc == 0) {
+        *off += size;
+        return 1;
+    }
+
+    *off -= 2;
+    return 0;
+}
+
+/*
 static __always_inline int save_to_buf(buf_t* submit_p, void* ptr, int size, u8 type, u8 tag) {
     // The biggest element that can be saved with this function should be defined here
 #define MAX_ELEMENT_SIZE sizeof(struct sockaddr_un)
@@ -108,41 +162,29 @@ static __always_inline int save_to_buf(buf_t* submit_p, void* ptr, int size, u8 
 
 
     // Save argument tag
-    //*off & (MAX_PERCPU_BUFSIZE-1) make sure the offset won't beyond the buffer limit
-    // if (tag != TAG_NONE) {
-    //     rc = bpf_probe_read(&(submit_p->buf[*off & (MAX_PERCPU_BUFSIZE - 1)]), 1, &tag);
-    //     if (rc != 0)
-    //         return 0;
+    // *off & (MAX_PERCPU_BUFSIZE-1) make sure the offset won't beyond the buffer limit
+    if (tag != TAG_NONE) {
+        rc = bpf_probe_read(&(submit_p->buf[*off & (MAX_PERCPU_BUFSIZE - 1)]), 1, &tag);
+        if (rc != 0)
+            return 0;
 
-    //     *off += 1;
-    // }
+        *off += 1;
+    }
 
     if (*off > MAX_PERCPU_BUFSIZE - MAX_ELEMENT_SIZE)
         // Satisfy validator for probe read
         return 0;
 
     // Read into buffer
-    // rc = bpf_probe_read(&(submit_p->buf[*off]), size, ptr);
-    // if (rc == 0) {
-    //     *off += size;
-    //     set_buf_off(SUBMIT_BUF_IDX, *off);
-    //     return size;
-    // }
-    rc = bpf_probe_read(&(submit_p->buf[*off]), 1, &tag);
-    if (rc != 0) {
-        *off -= 1;
-        return 0;
+    rc = bpf_probe_read(&(submit_p->buf[*off]), size, ptr);
+    if (rc == 0) {
+        *off += size;
+        set_buf_off(SUBMIT_BUF_IDX, *off);
+        return size;
     }
-    *off += 1;
-
-    if (*off > MAX_PERCPU_BUFSIZE - MAX_ELEMENT_SIZE) {
-        // Satisfy validator for probe read
-        *off -= 2;
-        return 0;
-    }
-
     return 0;
 }
+*/
 
 // Context will always be at the start of the submission buffer
 // It may be needed to resave the context if the arguments number changed by logic
@@ -163,16 +205,15 @@ static __always_inline context_t init_and_save_context(void* ctx, buf_t* submit_
     context.argc = argnum;
     context.retval = ret;
 
-
     save_context_to_buf(submit_p, (void*)&context);
     return context;
 }
 
+// TODO save_str_to_buf
 static __always_inline int save_str_to_buf(buf_t* submit_p, void* ptr, u8 tag) {
-    // Data saved to submit buf: [type][tag][str size][str]
     u32* off = get_buf_off(SUBMIT_BUF_IDX);
     if (off == NULL)
-        return -1;
+        return 0;
     if (*off > MAX_PERCPU_BUFSIZE - MAX_STRING_SIZE - sizeof(int))
         // not enough space - return
         return 0;
@@ -186,28 +227,34 @@ static __always_inline int save_str_to_buf(buf_t* submit_p, void* ptr, u8 tag) {
     // Save argument tag
     if (tag != TAG_NONE) {
         int rc = bpf_probe_read(&(submit_p->buf[*off & (MAX_PERCPU_BUFSIZE - 1)]), 1, &tag);
-        if (rc != 0)
+        if (rc != 0) {
+            *off -= 1;
             return 0;
+        }
 
         *off += 1;
     }
 
-    if (*off > MAX_PERCPU_BUFSIZE - MAX_STRING_SIZE - sizeof(int))
+    if (*off > MAX_PERCPU_BUFSIZE - MAX_STRING_SIZE - sizeof(int)) {
         // Satisfy validator for probe read
+        *off -= 2;
         return 0;
+    }
 
     // Read into buffer
     int sz = bpf_probe_read_str(&(submit_p->buf[*off + sizeof(int)]), MAX_STRING_SIZE, ptr);
     if (sz > 0) {
-        if (*off > MAX_PERCPU_BUFSIZE - sizeof(int))
+        if (*off > MAX_PERCPU_BUFSIZE - sizeof(int)) {
             // Satisfy validator for probe read
+            *off -= 2;
             return 0;
+        }
         bpf_probe_read(&(submit_p->buf[*off]), sizeof(int), &sz);
         *off += sz + sizeof(int);
-        set_buf_off(SUBMIT_BUF_IDX, *off);
-        return sz + sizeof(int);
+        return 1;
     }
 
+    *off -= 2;
     return 0;
 }
 
@@ -437,7 +484,7 @@ static __always_inline int save_args_from_regs(struct pt_regs* ctx, u32 event_id
     return save_args(&args, event_id);
 }
 
-static __always_inline int load_args(struct args_t* args, u32 event_id) {
+static __always_inline int load_args(struct args_t* args, bool delete, u32 event_id) {
     struct args_t* saved_args;
     u32 tid = bpf_get_current_pid_tgid();
     u64 id = event_id;
@@ -454,6 +501,9 @@ static __always_inline int load_args(struct args_t* args, u32 event_id) {
     args->args[3] = saved_args->args[3];
     args->args[4] = saved_args->args[4];
     args->args[5] = saved_args->args[5];
+
+    if (delete)
+        bpf_map_delete_elem(&args_map, &id);
 
     return 0;
 }
@@ -571,6 +621,7 @@ static __always_inline int trace_ret_generic(void* ctx, u32 id, u64 types, u64 t
  * args[1] is long id. struct pt_regs is a copy of the CPU registers at the
  * time sys_enter was called. id is the ID of the syscall.
  **/
+ // TODO sys_enter
 SEC("raw_tracepoint/sys_enter")
 int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
 
@@ -642,8 +693,9 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
         if (submit_p == NULL) {
             return 0;
         }
+
         set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
-        context_t context = init_and_save_context(ctx, submit_p, RAW_SYS_ENTER, 1 /*argnum*/, 0 /*ret*/);
+        context_t context = init_and_save_context((void*)ctx, submit_p, RAW_SYS_ENTER, 1 /*argnum*/, 0 /*ret*/);
         // context_t context = {};
         // init_context(&context);
         // context.eventid = RAW_SYS_ENTER;
@@ -674,8 +726,6 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
 
 SEC("raw_tracepoint/sys_exit")
 int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args* ctx) {
-    if (!should_trace())
-        return 0;
 
     int id;
     long ret;
@@ -693,12 +743,17 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args* ctx) {
     }
 
     struct args_t saved_args = {};
-    if (load_args(&saved_args, id) != 0) {
+    bool delete_args = true;
+    if (load_args(&saved_args, delete_args, id) != 0) {
         return 0;
     }
-    del_args(id);
+
+    if (!should_trace())
+        return 0;
+    // del_args(id);
 
     // fork events may add new pids to the traced pids set
+    // perform this check after should_trace() to only add forked childs of a traced parent
     if (id == SYS_CLONE || id == SYS_FORK || id == SYS_VFORK) {
         //add_container_pid_ns();
         add_pid();
@@ -756,22 +811,22 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args* ctx) {
 SEC("raw_tracepoint/sched_process_exit")
 int tracepoint__sched__sched_process_exit(struct bpf_raw_tracepoint_args* ctx) {
 
-    if (!should_trace())
-        return 0;
+    // if (!should_trace())
+    //     return 0;
 
-    // if (get_config(CONFIG_MODE) == MODE_CONTAINER_NEW)
-    //     remove_pid_ns_if_needed();
-    // else
-    remove_pid();
+    // // if (get_config(CONFIG_MODE) == MODE_CONTAINER_NEW)
+    // //     remove_pid_ns_if_needed();
+    // // else
+    // remove_pid();
 
-    buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
-    if (submit_p == NULL)
-        return 0;
-    set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
+    // buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
+    // if (submit_p == NULL)
+    //     return 0;
+    // set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
 
-    init_and_save_context(ctx, submit_p, SCHED_PROCESS_EXIT, 0, 0);
+    // init_and_save_context(ctx, submit_p, SCHED_PROCESS_EXIT, 0, 0);
 
-    events_perf_submit(ctx);
+    // events_perf_submit(ctx);
     return 0;
 }
 
@@ -780,7 +835,8 @@ SEC("raw_tracepoint/sys_execve")
 int syscall__execve(void* ctx) {
     struct args_t args = {};
     u8 argc = 0;
-    if (load_args(&args, SYS_EXECVE) != 0) {
+    bool delete_args = false;
+    if (load_args(&args, delete_args, SYS_EXECVE) != 0) {
         return -1;
     }
     if (!event_chosen(SYS_EXECVE)) {
@@ -797,12 +853,16 @@ int syscall__execve(void* ctx) {
     context.argc = 2;
     context.retval = 0;
     save_context_to_buf(submit_p, (void*)&context);
+
     u64* tags = bpf_map_lookup_elem(&params_names_map, &context.eventid);
     if (!tags) {
         return -1;
     }
     argc += save_str_to_buf(submit_p, (void*)args.args[0] /*filename*/, DEC_ARG(0, *tags));
     argc += save_str_arr_to_buf(submit_p, (const char* const*)args.args[1] /*argv*/, DEC_ARG(1, *tags));
+    if (get_config(CONFIG_EXEC_ENV)) {
+        argc += save_str_arr_to_buf(submit_p, (const char* const*)args.args[2] /*envp*/, DEC_ARG(2, *tags));
+    }
     context.argc = argc;
     save_context_to_buf(submit_p, (void*)&context);
     events_perf_submit(ctx);
@@ -815,7 +875,8 @@ int syscall__execveat(void* ctx) {
     struct args_t args = {};
     u8 argnum = 0;
 
-    if (load_args(&args, SYS_EXECVEAT) != 0)
+    bool delete_args = false;
+    if (load_args(&args, delete_args, SYS_EXECVEAT) != 0)
         return -1;
 
     if (!event_chosen(SYS_EXECVEAT))
@@ -839,7 +900,11 @@ int syscall__execveat(void* ctx) {
     argnum += save_to_buf(submit_p, (void*)&args.args[0] /*dirfd*/, sizeof(int), INT_T, DEC_ARG(0, *tags));
     argnum += save_str_to_buf(submit_p, (void*)args.args[1] /*pathname*/, DEC_ARG(1, *tags));
     argnum += save_str_arr_to_buf(submit_p, (const char* const*)args.args[2] /*argv*/, DEC_ARG(2, *tags));
+    if (get_config(CONFIG_EXEC_ENV)) {
+        argnum += save_str_arr_to_buf(submit_p, (const char* const*)args.args[3] /*envp*/, DEC_ARG(3, *tags));
+    }
     argnum += save_to_buf(submit_p, (void*)&args.args[4] /*flags*/, sizeof(int), INT_T, DEC_ARG(4, *tags));
+
     context.argc = argnum;
     save_context_to_buf(submit_p, (void*)&context);
     events_perf_submit(ctx);

@@ -93,9 +93,9 @@ type context struct {
 	Comm     [16]byte
 	Uts_name [16]byte
 	Event_id int32
-	Argc     uint8
-	_        [3]byte
 	Retval   int64
+	Argc     uint8
+	_        [7]byte
 }
 
 func UnameRelease() string {

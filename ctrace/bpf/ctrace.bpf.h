@@ -31,10 +31,10 @@
 #define FILE_BUF_IDX        2
 #define MAX_BUFFERS         3
 
-#define CONFIG_SHOW_SYSCALL     0
-#define CONFIG_EXEC_ENV         1
-#define CONFIG_CAPTURE_FILES    2
-#define CONFIG_EXTRACT_DYN_CODE 3
+// #define CONFIG_SHOW_SYSCALL     0
+// #define CONFIG_EXEC_ENV         1
+// #define CONFIG_CAPTURE_FILES    2
+// #define CONFIG_EXTRACT_DYN_CODE 3
 
 #define NONE_T        0UL
 #define INT_T         1UL
@@ -152,8 +152,8 @@ struct context_t {
     char comm[TASK_COMM_LEN];
     char uts_name[TASK_COMM_LEN];
     u32 eventid;
-    u8 argc;
     s64 retval;
+    u8 argc;
 };
 
 

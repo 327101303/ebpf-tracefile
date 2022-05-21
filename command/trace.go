@@ -189,6 +189,7 @@ var listSubCmd = &cli.Command{
 	},
 }
 
+// TODO prepareFilter
 func prepareFilter(filters []string) (ctrace.Filter, error) {
 
 	filterHelp := `
