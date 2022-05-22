@@ -10,17 +10,23 @@
 
 #include "common.bpf.h"
 
+#if defined(bpf_target_x86)
+#define PT_REGS_PARM6(ctx)  ((ctx)->r9)
+#elif defined(bpf_target_arm64)
+#define PT_REGS_PARM6(x) (((PT_REGS_ARM64 *)(x))->regs[5])
+#endif
 
+//TODO 为何还需要？
 #ifndef TASK_COMM_LEN
 #define TASK_COMM_LEN 16
 #endif
 
-#define NULL ((void *)0)
+// #define NULL ((void *)0)
 
 #define MAX_PERCPU_BUFSIZE  (1 << 15)     // This value is actually set by the kernel as an upper bound
 #define MAX_STRING_SIZE     4096          // Choosing this value to be the same as PATH_MAX
 #define MAX_STR_ARR_ELEM    40            // String array elements number should be bounded due to instructions limit
-#define MAX_PATH_PREF_SIZE  64            // Max path prefix should be bounded due to instructions limit
+#define MAX_PATH_PREF_SIZE  50            // Max path prefix should be bounded due to instructions limit
 // #define MAX_STACK_ADDRESSES 1024          // Max amount of different stack trace addresses to buffer in the Map
 // #define MAX_STACK_DEPTH     20            // Max depth of each stack trace to track
 #define MAX_STR_FILTER_SIZE 16            // Max string filter size should be bounded to the size of the compared values (comm, uts)
@@ -30,11 +36,6 @@
 #define STRING_BUF_IDX      1
 #define FILE_BUF_IDX        2
 #define MAX_BUFFERS         3
-
-// #define CONFIG_SHOW_SYSCALL     0
-// #define CONFIG_EXEC_ENV         1
-// #define CONFIG_CAPTURE_FILES    2
-// #define CONFIG_EXTRACT_DYN_CODE 3
 
 #define NONE_T        0UL
 #define INT_T         1UL
@@ -52,11 +53,6 @@
 #define ALERT_T       13UL
 #define TYPE_MAX      255UL
 
-#if defined(bpf_target_x86)
-#define PT_REGS_PARM6(ctx)  ((ctx)->r9)
-#elif defined(bpf_target_arm64)
-#define PT_REGS_PARM6(x) (((PT_REGS_ARM64 *)(x))->regs[5])
-#endif
 /*====================================SYSCALL CALLS =================================*/
 
 #define TAG_NONE           0UL
@@ -166,13 +162,6 @@ struct buf_t {
     u8 buf[MAX_PERCPU_BUFSIZE];
 };
 
-struct syscall_data_t {
-    uint id;                       // Current syscall id
-    struct args_t args;                   // Syscall arguments
-    unsigned long ts;              // Timestamp of syscall entry
-    unsigned long ret;             // Syscall ret val. May be used by syscall exit tail calls.
-};
-
 typedef struct string_filter {
     char str[MAX_STR_FILTER_SIZE];
 } string_filter_t;
@@ -187,6 +176,7 @@ BPF_HASH(containers_map, u32, u32);
 // Persist args info between function entry and return
 BPF_HASH(args_map, u64, struct args_t);
 
+BPF_HASH(ret_map, u64, u64);                            // Persist return value to be used in tail calls
 BPF_HASH(comm_filter, string_filter_t, u32);            // Used to filter events by command name
 
 // Percpu global buffer variables

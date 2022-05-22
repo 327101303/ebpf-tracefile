@@ -206,6 +206,7 @@ static __always_inline context_t init_and_save_context(void* ctx, buf_t* submit_
     context.retval = ret;
 
     save_context_to_buf(submit_p, (void*)&context);
+    // bpf_printk("init_and_save_context, argc=%d", context.argc);
     return context;
 }
 
@@ -337,17 +338,6 @@ out:
 
 #define DEC_ARG(n, enc_arg) ((enc_arg>>(8*n))&0xFF)
 
-//u64 64bits arg_tag5(8bits)---arg_tag4(8bits)---arg_tag3(8bits)---...---arg_tag0(8bits)
-static __always_inline int get_encoded_arg_num(u64 types) {
-    unsigned int i, argc = 0;
-#pragma unroll
-    for (i = 0; i < 6; i++) {
-        if (DEC_ARG(i, types) != NONE_T)
-            argc++;
-    }
-    return argc;
-}
-
 static __always_inline int save_args_to_buf(u64 types, u64 tags, struct args_t* args) {
     unsigned int i;
     unsigned int rc = 0;
@@ -443,7 +433,7 @@ static __always_inline int events_perf_submit(void* ctx) {
         return -1;
 
     /* satisfy validator by setting buffer bounds */
-    int size = *off & (MAX_PERCPU_BUFSIZE - 1);
+    int size = ((*off - 1) & (MAX_PERCPU_BUFSIZE - 1)) + 1;
     void* data = submit_p->buf;
     return bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, data, size);
 }
@@ -463,7 +453,6 @@ static __always_inline int save_args_from_regs(struct pt_regs* ctx, u32 event_id
     struct task_struct* task = (struct task_struct*)bpf_get_current_task();
     if (is_x86_compat(task) && is_syscall) {
 #if defined(bpf_target_x86)
-        // bpf_probe_read(args.args, sizeof(6 * sizeof(u64)), (void*)ctx->args);
         args.args[0] = ctx->bx;
         args.args[1] = ctx->cx;
         args.args[2] = ctx->dx;
@@ -514,6 +503,26 @@ static __always_inline int del_args(u32 event_id) {
     id = id << 32 | tid;
 
     bpf_map_delete_elem(&args_map, &id);
+
+    return 0;
+}
+
+static __always_inline int save_retval(u64 retval, u32 event_id) {
+    u64 id = event_id;
+    u32 tid = bpf_get_current_pid_tgid();
+    id = id << 32 | tid;
+
+    bpf_map_update_elem(&ret_map, &id, &retval, BPF_ANY);
+
+    return 0;
+}
+
+static __always_inline int del_retval(u32 event_id) {
+    u64 id = event_id;
+    u32 tid = bpf_get_current_pid_tgid();
+    id = id << 32 | tid;
+
+    bpf_map_delete_elem(&ret_map, &id);
 
     return 0;
 }
@@ -596,27 +605,28 @@ static __always_inline int trace_ret_generic(void* ctx, u32 id, u64 types, u64 t
     buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
     if (submit_p == NULL)
         return 0;
-    bpf_printk("trace_ret_generic, got submit_p");
+    // bpf_printk("trace_ret_generic, got submit_p");
     set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
 
     u8 argnum = save_args_to_buf(types, tags, args);
-    bpf_printk("trace_ret_generic, saved types and tags");
-    context_t context = {};
-    init_context(&context);
-    context.argc = argnum;
-    context.retval = ret;
-    context.eventid = id;
-    save_context_to_buf(submit_p, (void*)&context);
-    bpf_printk("trace_ret_generic, saved context, argc=%d", context.argc);
+    // bpf_printk("trace_ret_generic, saved types and tags");
+
+    init_and_save_context(ctx, submit_p, id, argnum, ret);
+
+
     events_perf_submit(ctx);
-    bpf_printk("trace_ret_generic, submitted context");
+    // bpf_printk("trace_ret_generic, submitted context");
     return 0;
 }
 
 
 
-/*============================== SYSCALL HOOKS ===============================*/
 
+
+/*============================== SYSCALL HOOKS ===============================*/
+#ifndef CONFIG_ARCH_HAS_SYSCALL_WRAPPER
+#define CONFIG_ARCH_HAS_SYSCALL_WRAPPER 0
+#endif
 /** struct bpf_raw_tracepoint_args *ctx; args[0] is struct pt_regs *regs and
  * args[1] is long id. struct pt_regs is a copy of the CPU registers at the
  * time sys_enter was called. id is the ID of the syscall.
@@ -624,6 +634,9 @@ static __always_inline int trace_ret_generic(void* ctx, u32 id, u64 types, u64 t
  // TODO sys_enter
 SEC("raw_tracepoint/sys_enter")
 int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
+    if (!should_trace()) {
+        return 0;
+    }
 
     struct args_t args_tmp = {};
     struct task_struct* task = (struct task_struct*)bpf_get_current_task();
@@ -632,7 +645,7 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
     struct pt_regs* regs = (struct pt_regs*)ctx->args[0];
 
     if (is_x86_compat(task)) {
-#if defined(bpf_target_x86)
+#if defined (bpf_target_x86)
         args_tmp.args[0] = READ_KERN(regs->bx);
         args_tmp.args[1] = READ_KERN(regs->cx);
         args_tmp.args[2] = READ_KERN(regs->dx);
@@ -656,12 +669,8 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
     }
 #else  // CONFIG_ARCH_HAS_SYSCALL_WRAPPER
     bpf_probe_read(args_tmp.args, sizeof(6 * sizeof(u64)), (void*)ctx->args);
-    // args_tmp.args[0] = ctx->args[0];
-    // args_tmp.args[1] = ctx->args[1];
-    // args_tmp.args[2] = ctx->args[2];
-    // args_tmp.args[3] = ctx->args[3];
-    // args_tmp.args[4] = ctx->args[4];
-    // args_tmp.args[5] = ctx->args[5];
+    // bpf_printk("%ld\t%ld\t%ld\t", args_tmp.args[0], args_tmp.args[1], args_tmp.args[2]);
+    // bpf_printk("%ld\t%ld\t%ld\t", args_tmp.args[3], args_tmp.args[4], args_tmp.args[5]);
 #endif // CONFIG_ARCH_HAS_SYSCALL_WRAPPER
 
     if (is_compat(task)) {
@@ -675,9 +684,7 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
 
     u32 pid = bpf_get_current_pid_tgid();
 
-    if (!should_trace()) {
-        return 0;
-    }
+
 
     // execve events may add new pids to the traced pids set
     // if (id == SYS_EXECVE || id == SYS_EXECVEAT) {
@@ -764,17 +771,14 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args* ctx) {
         if (submit_p == NULL)
             return 0;
         set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
-        context_t context = {};
-        init_context(&context);
-        context.eventid = RAW_SYS_EXIT;
-        context.argc = 1;
-        context.retval = ret;
-        save_context_to_buf(submit_p, (void*)&context);
+
+        context_t context = init_and_save_context(ctx, submit_p, RAW_SYS_EXIT, 1 /*argnum*/, ret);
 
         u64* tags = bpf_map_lookup_elem(&params_names_map, &context.eventid);
         if (!tags) {
             return -1;
         }
+
         save_to_buf(submit_p, (void*)&id, sizeof(int), INT_T, DEC_ARG(0, *tags));
         events_perf_submit(ctx);
     }
@@ -790,7 +794,6 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args* ctx) {
             }
             types = *saved_types;
             tags = *saved_tags;
-            bpf_printk("raw_tracepoint_sys_exit get params from map for:%d", id);
         }
         else {
             // We can't use saved args after execve syscall, as pointers are invalid
@@ -800,11 +803,18 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args* ctx) {
                 submit_event = false;
         }
         if (submit_event) {
-            bpf_printk("raw_tracepoint_sys_exit called trace_ret_g for:%d, types: %ld, tags: %ld", id, types, tags);
+            // bpf_printk("raw_tracepoint_sys_exit called trace_ret_g for:%d, types: %ld, tags: %ld", id, types, tags);
             trace_ret_generic(ctx, id, types, tags, &saved_args, ret);
         }
 
     }
+    // call syscall handler, if exists
+    save_args(&saved_args, id);
+    save_retval(ret, id);
+    // exit tail calls should always delete args and retval before return
+    // bpf_tail_call(ctx, &sys_exit_tails, id);
+    del_retval(id);
+    del_args(id);
     return 0;
 }
 
@@ -814,9 +824,9 @@ int tracepoint__sched__sched_process_exit(struct bpf_raw_tracepoint_args* ctx) {
     // if (!should_trace())
     //     return 0;
 
-    // // if (get_config(CONFIG_MODE) == MODE_CONTAINER_NEW)
-    // //     remove_pid_ns_if_needed();
-    // // else
+    // if (get_config(CONFIG_MODE) == MODE_CONTAINER_NEW)
+    //     remove_pid_ns_if_needed();
+    // else
     // remove_pid();
 
     // buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
