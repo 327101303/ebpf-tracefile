@@ -254,7 +254,7 @@ To 'escape' those operators, please use single quotes, e.g.: 'uid>0'
 	if len(filters) == 1 && filters[0] == "help" {
 		return ctrace.Filter{}, fmt.Errorf(filterHelp)
 	}
-	log.Println("进入prepareFilter", filters, len(filters))
+	// log.Println("进入prepareFilter", filters, len(filters))
 	filter := ctrace.Filter{
 		// UIDFilter: &ctrace.UintFilter{
 		// 	Equal:    []uint64{},

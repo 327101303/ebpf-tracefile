@@ -33,6 +33,14 @@ const (
 	filterOut uint8 = 2
 )
 
+// an enum that specifies the index of a function to be used in a bpf tail call
+// tail function indexes should match defined values in ebpf code
+const (
+	tailVfsWrite uint32 = iota
+	tailVfsWritev
+	tailSendBin
+)
+
 // argType is an enum that encodes the argument types that the BPF program may write to the shared buffer
 // argument types should match defined values in ebpf code
 type argType uint8

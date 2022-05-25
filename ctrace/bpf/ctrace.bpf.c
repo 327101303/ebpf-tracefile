@@ -619,7 +619,31 @@ static __always_inline int trace_ret_generic(void* ctx, u32 id, u64 types, u64 t
     return 0;
 }
 
+#define TRACE_ENT_FUNC(name, id)                                        \
+int trace_##name(void *ctx)                                             \
+{                                                                       \
+    if (!should_trace())                                                \
+        return 0;                                                       \
+    return save_args_from_regs(ctx, id, false);                         \
+}
 
+#define TRACE_RET_FUNC(name, id, types, tags, ret)                      \
+int trace_ret_##name(void *ctx)                                         \
+{                                                                       \
+    args_t args = {};                                                   \
+                                                                        \
+    bool delete_args = true;                                            \
+    if (load_args(&args, delete_args, id) != 0)                         \
+        return -1;                                                      \
+                                                                        \
+    if (!should_trace())                                                \
+        return -1;                                                      \
+                                                                        \
+    if (!event_chosen(id))                                              \
+        return 0;                                                       \
+                                                                        \
+    return trace_ret_generic(ctx, id, types, tags, &args, ret);         \
+}
 
 
 
@@ -919,6 +943,375 @@ int syscall__execveat(void* ctx) {
     save_context_to_buf(submit_p, (void*)&context);
     events_perf_submit(ctx);
     return 0;
+}
+
+// ===================vfs probes=======================
+// TODO vfs辅助函数
+
+static __always_inline struct path get_path_from_file(struct file* file) {
+    return READ_KERN(file->f_path);
+}
+
+static __always_inline struct mount* real_mount(struct vfsmount* mnt) {
+    return container_of(mnt, struct mount, mnt);
+}
+
+static __always_inline struct dentry* get_mnt_root_ptr_from_vfsmnt(struct vfsmount* vfsmnt) {
+    return READ_KERN(vfsmnt->mnt_root);
+}
+
+static __always_inline struct dentry* get_d_parent_ptr_from_dentry(struct dentry* dentry) {
+    return READ_KERN(dentry->d_parent);
+}
+
+static __always_inline struct qstr get_d_name_from_dentry(struct dentry* dentry) {
+    return READ_KERN(dentry->d_name);
+}
+
+static __always_inline dev_t get_dev_from_file(struct file* file) {
+    struct inode* f_inode = READ_KERN(file->f_inode);
+    struct super_block* i_sb = READ_KERN(f_inode->i_sb);
+    return READ_KERN(i_sb->s_dev);
+}
+
+static __always_inline unsigned long get_inode_nr_from_file(struct file* file) {
+    struct inode* f_inode = READ_KERN(file->f_inode);
+    return READ_KERN(f_inode->i_ino);
+}
+
+static __always_inline unsigned short get_inode_mode_from_file(struct file* file) {
+    struct inode* f_inode = READ_KERN(file->f_inode);
+    return READ_KERN(f_inode->i_mode);
+}
+
+static __always_inline int save_file_path_to_str_buf(buf_t* string_p, struct file* file) {
+    struct path f_path = get_path_from_file(file);
+    char slash = '/';
+    int zero = 0;
+    struct dentry* dentry = f_path.dentry;
+    struct vfsmount* vfsmnt = f_path.mnt;
+    struct mount* mnt_p = real_mount(vfsmnt);
+    // struct mount mnt;
+    // bpf_probe_read(&mnt, sizeof(struct mount), mnt_p);
+    // TODO 替换为0.7.0版本的，避免结构体超出512字节，导致BPF stack放不下
+    struct mount* mnt_parent_p;
+    bpf_probe_read(&mnt_parent_p, sizeof(struct mount*), &mnt_p->mnt_parent);
+
+    u32 buf_off = (MAX_PERCPU_BUFSIZE >> 1);
+
+#pragma unroll
+    // As bpf loops are not allowed and max instructions number is 4096, path components is limited to 30
+    for (int i = 0; i < 30; i++) {
+        struct dentry* mnt_root = get_mnt_root_ptr_from_vfsmnt(vfsmnt);
+        struct dentry* d_parent = get_d_parent_ptr_from_dentry(dentry);
+        if (dentry == mnt_root || dentry == d_parent) {
+            if (dentry != mnt_root) {
+                // We reached root, but not mount root - escaped?
+                break;
+            }
+            // if (mnt_p != mnt.mnt_parent) {
+            //     // We reached root, but not global root - continue with mount point path
+            //     dentry = mnt.mnt_mountpoint;
+            //     bpf_probe_read(&mnt, sizeof(struct mount), mnt.mnt_parent);
+            //     vfsmnt = &mnt.mnt;
+            //     continue;
+            // }
+            if (mnt_p != mnt_parent_p) {
+                // We reached root, but not global root - continue with mount point path
+                bpf_probe_read(&dentry, sizeof(struct dentry*), &mnt_p->mnt_mountpoint);
+                bpf_probe_read(&mnt_p, sizeof(struct mount*), &mnt_p->mnt_parent);
+                bpf_probe_read(&mnt_parent_p, sizeof(struct mount*), &mnt_p->mnt_parent);
+                vfsmnt = &mnt_p->mnt;
+                continue;
+            }
+            // Global root - path fully parsed
+            break;
+        }
+        // Add this dentry name to path
+        struct qstr d_name = get_d_name_from_dentry(dentry);
+        unsigned int len = (d_name.len + 1) & (MAX_STRING_SIZE - 1);
+        unsigned int off = buf_off - len;
+        // Is string buffer big enough for dentry name?
+        int sz = 0;
+        if (off <= buf_off) { // verify no wrap occured
+            len = ((len - 1) & ((MAX_PERCPU_BUFSIZE >> 1) - 1)) + 1;
+            sz = bpf_probe_read_str(&(string_p->buf[off & ((MAX_PERCPU_BUFSIZE >> 1) - 1)]), len, (void*)d_name.name);
+        }
+        else
+            break;
+        if (sz > 1) {
+            buf_off -= 1; // remove null byte termination with slash sign
+            bpf_probe_read(&(string_p->buf[buf_off & (MAX_PERCPU_BUFSIZE - 1)]), 1, &slash);
+            buf_off -= sz - 1;
+        }
+        else {
+            // If sz is 0 or 1 we have an error (path can't be null nor an empty string)
+            break;
+        }
+        dentry = d_parent;
+    }
+
+    if (buf_off == (MAX_PERCPU_BUFSIZE >> 1)) {
+        // memfd files have no path in the filesystem -> extract their name
+        buf_off = 0;
+        struct qstr d_name = get_d_name_from_dentry(dentry);
+        bpf_probe_read_str(&(string_p->buf[0]), MAX_STRING_SIZE, (void*)d_name.name);
+    }
+    else {
+        // Add leading slash
+        buf_off -= 1;
+        bpf_probe_read(&(string_p->buf[buf_off & (MAX_PERCPU_BUFSIZE - 1)]), 1, &slash);
+        // Null terminate the path string
+        bpf_probe_read(&(string_p->buf[(MAX_PERCPU_BUFSIZE >> 1) - 1]), 1, &zero);
+    }
+
+    set_buf_off(STRING_BUF_IDX, buf_off);
+    return buf_off;
+}
+
+static __inline int has_prefix(char* prefix, char* str, int n) {
+    int i;
+#pragma unroll
+    for (i = 0; i < n; prefix++, str++, i++) {
+        if (!*prefix)
+            return 1;
+        if (*prefix != *str) {
+            return 0;
+        }
+    }
+
+    // prefix is too long
+    return 0;
+}
+
+static __always_inline int do_vfs_write_writev(struct pt_regs* ctx, u32 event_id, u32 tail_call_id) {
+    args_t saved_args;
+    bool has_filter = false;
+    bool filter_match = false;
+
+    bool delete_args = false;
+    if (load_args(&saved_args, delete_args, event_id) != 0) {
+        // missed entry or not traced
+        return 0;
+    }
+
+    struct file* file = (struct file*)saved_args.args[0];
+
+    // Get per-cpu string buffer
+    buf_t* string_p = get_buf(STRING_BUF_IDX);
+    if (string_p == NULL)
+        return -1;
+    save_file_path_to_str_buf(string_p, file);
+    u32* off = get_buf_off(STRING_BUF_IDX);
+    if (off == NULL)
+        return -1;
+
+    // Check if capture write was requested for this path
+// #pragma unroll
+//     for (int i = 0; i < 3; i++) {
+//         int idx = i;
+//         path_filter_t* filter_p = bpf_map_lookup_elem(&file_filter, &idx);
+//         if (filter_p == NULL)
+//             return -1;
+
+//         if (!filter_p->path[0])
+//             break;
+
+//         has_filter = true;
+
+//         if (*off > MAX_PERCPU_BUFSIZE - MAX_STRING_SIZE)
+//             break;
+
+//         if (has_prefix(filter_p->path, &string_p->buf[*off], MAX_PATH_PREF_SIZE)) {
+//             filter_match = true;
+//             break;
+//         }
+//     }
+
+    // Submit vfs_write(v) event if it was chosen, or in case of a filter match (so we can get written_files metadata)
+    if (event_chosen(VFS_WRITE) || event_chosen(VFS_WRITEV) || filter_match) {
+        loff_t start_pos;
+        size_t count;
+        unsigned long vlen;
+
+        buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
+        if (submit_p == NULL)
+            return 0;
+        set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
+
+        init_and_save_context(ctx, submit_p, event_id, 5 /*argnum*/, PT_REGS_RC(ctx));
+
+        if (event_id == VFS_WRITE) {
+            count = (size_t)saved_args.args[2];
+        }
+        else {
+            vlen = saved_args.args[2];
+        }
+        loff_t* pos = (loff_t*)saved_args.args[3];
+
+        // Extract device id, inode number, and pos (offset)
+        dev_t s_dev = get_dev_from_file(file);
+        unsigned long inode_nr = get_inode_nr_from_file(file);
+        bpf_probe_read(&start_pos, sizeof(off_t), pos);
+
+        // Calculate write start offset
+        if (start_pos != 0)
+            start_pos -= PT_REGS_RC(ctx);
+
+        u64* tags = bpf_map_lookup_elem(&params_names_map, &event_id);
+        if (!tags) {
+            return -1;
+        }
+
+        save_str_to_buf(submit_p, (void*)&string_p->buf[*off], DEC_ARG(0, *tags));
+        save_to_buf(submit_p, &s_dev, sizeof(dev_t), DEV_T_T, DEC_ARG(1, *tags));
+        save_to_buf(submit_p, &inode_nr, sizeof(unsigned long), ULONG_T, DEC_ARG(2, *tags));
+
+        if (event_id == VFS_WRITE)
+            save_to_buf(submit_p, &count, sizeof(size_t), SIZE_T_T, DEC_ARG(3, *tags));
+        else
+            save_to_buf(submit_p, &vlen, sizeof(unsigned long), ULONG_T, DEC_ARG(3, *tags));
+        save_to_buf(submit_p, &start_pos, sizeof(off_t), OFF_T_T, DEC_ARG(4, *tags));
+
+        // Submit vfs_write(v) event
+        events_perf_submit(ctx);
+    }
+
+    if (has_filter && !filter_match) {
+        // There is a filter, but no match
+        del_args(event_id);
+        return 0;
+    }
+
+    // No filter was given, or filter match - continue
+    bpf_tail_call(ctx, &prog_array, tail_call_id);
+    return 0;
+}
+
+static __always_inline int do_vfs_write_writev_tail(struct pt_regs* ctx, u32 event_id) {
+    args_t saved_args;
+    bin_args_t bin_args = {};
+    loff_t start_pos;
+
+    void* ptr;
+    size_t count;
+    struct iovec* vec;
+    unsigned long vlen;
+
+    buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
+    if (submit_p == NULL)
+        return 0;
+    set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
+
+    context_t context = init_and_save_context(ctx, submit_p, event_id, 5 /*argnum*/, PT_REGS_RC(ctx));
+
+    bool delete_args = true;
+    if (load_args(&saved_args, delete_args, event_id) != 0) {
+        // missed entry or not traced
+        return 0;
+    }
+
+    struct file* file = (struct file*)saved_args.args[0];
+    if (event_id == VFS_WRITE) {
+        ptr = (void*)saved_args.args[1];
+        count = (size_t)saved_args.args[2];
+    }
+    else {
+        vec = (struct iovec*)saved_args.args[1];
+        vlen = saved_args.args[2];
+    }
+    loff_t* pos = (loff_t*)saved_args.args[3];
+
+    // Get per-cpu string buffer
+    buf_t* string_p = get_buf(STRING_BUF_IDX);
+    if (string_p == NULL)
+        return -1;
+    save_file_path_to_str_buf(string_p, file);
+    u32* off = get_buf_off(STRING_BUF_IDX);
+    if (off == NULL)
+        return -1;
+
+    // Extract device id, inode number, mode, and pos (offset)
+    dev_t s_dev = get_dev_from_file(file);
+    unsigned long inode_nr = get_inode_nr_from_file(file);
+    unsigned short i_mode = get_inode_mode_from_file(file);
+    bpf_probe_read(&start_pos, sizeof(off_t), pos);
+
+    // Calculate write start offset
+    if (start_pos != 0)
+        start_pos -= PT_REGS_RC(ctx);
+
+    u64 id = bpf_get_current_pid_tgid();
+    u32 pid = context.pid;
+
+    int idx = DEV_NULL_STR;
+    // path_filter_t* stored_str_p = bpf_map_lookup_elem(&string_store, &idx);
+    // if (stored_str_p == NULL)
+    //     return -1;
+
+    if (*off > MAX_PERCPU_BUFSIZE - MAX_STRING_SIZE)
+        return -1;
+
+    // check for /dev/null
+    if (!has_prefix("/dev/null", (char*)&string_p->buf[*off], 10))
+        pid = 0;
+
+    // if (get_config(CONFIG_CAPTURE_FILES)) {
+    //     bin_args.type = SEND_VFS_WRITE;
+    //     bpf_probe_read(bin_args.metadata, 4, &s_dev);
+    //     bpf_probe_read(&bin_args.metadata[4], 8, &inode_nr);
+    //     bpf_probe_read(&bin_args.metadata[12], 4, &i_mode);
+    //     bpf_probe_read(&bin_args.metadata[16], 4, &pid);
+    //     bin_args.start_off = start_pos;
+    //     if (event_id == VFS_WRITE) {
+    //         bin_args.ptr = ptr;
+    //         bin_args.full_size = PT_REGS_RC(ctx);
+    //     }
+    //     else {
+    //         bin_args.vec = vec;
+    //         bin_args.iov_idx = 0;
+    //         bin_args.iov_len = vlen;
+    //         if (vlen > 0) {
+    //             struct iovec io_vec;
+    //             bpf_probe_read(&io_vec, sizeof(struct iovec), &vec[0]);
+    //             bin_args.ptr = io_vec.iov_base;
+    //             bin_args.full_size = io_vec.iov_len;
+    //         }
+    //     }
+    //     bpf_map_update_elem(&bin_args_map, &id, &bin_args, BPF_ANY);
+
+    //     // Send file data
+    //     bpf_tail_call(ctx, &prog_array, TAIL_SEND_BIN);
+    // }
+    bpf_tail_call(ctx, &prog_array, TAIL_SEND_BIN);
+    return 0;
+}
+
+
+SEC("kprobe/vfs_write")
+TRACE_ENT_FUNC(vfs_write, VFS_WRITE);
+
+SEC("kretprobe/vfs_write")
+int BPF_KPROBE(trace_ret_vfs_write) {
+    return do_vfs_write_writev(ctx, VFS_WRITE, TAIL_VFS_WRITE);
+}
+
+SEC("kretprobe/vfs_write_tail")
+int BPF_KPROBE(trace_ret_vfs_write_tail) {
+    return do_vfs_write_writev_tail(ctx, VFS_WRITE);
+}
+
+SEC("kprobe/vfs_writev")
+TRACE_ENT_FUNC(vfs_writev, VFS_WRITEV);
+
+SEC("kretprobe/vfs_writev")
+int BPF_KPROBE(trace_ret_vfs_writev) {
+    return do_vfs_write_writev(ctx, VFS_WRITEV, TAIL_VFS_WRITEV);
+}
+
+SEC("kretprobe/vfs_writev_tail")
+int BPF_KPROBE(trace_ret_vfs_writev_tail) {
+    return do_vfs_write_writev_tail(ctx, VFS_WRITEV);
 }
 
 

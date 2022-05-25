@@ -37,6 +37,11 @@
 #define FILE_BUF_IDX        2
 #define MAX_BUFFERS         3
 
+#define SEND_VFS_WRITE      1
+#define SEND_MPROTECT       2
+#define SEND_META_SIZE      20
+#define DEV_NULL_STR    0
+
 #define NONE_T        0UL
 #define INT_T         1UL
 #define UINT_T        2UL
@@ -157,10 +162,22 @@ typedef struct args_t {
     unsigned long args[6];
 }args_t;
 
+typedef struct bin_args {
+    u8 type;
+    u8 metadata[SEND_META_SIZE];
+    char* ptr;
+    loff_t start_off;
+    unsigned int full_size;
+    u8 iov_idx;
+    u8 iov_len;
+    struct iovec* vec;
+} bin_args_t;
+
 
 struct buf_t {
     u8 buf[MAX_PERCPU_BUFSIZE];
 };
+
 
 typedef struct string_filter {
     char str[MAX_STR_FILTER_SIZE];
@@ -259,16 +276,16 @@ static __always_inline u32 get_task_ns_pid(struct task_struct* task) {
     struct pid_namespace* pid_ns_children = READ_KERN(namespaceproxy->pid_ns_for_children);
     unsigned int level = READ_KERN(pid_ns_children->level);
 
-    if (bpf_core_type_exists(struct pid_link)) {
-        struct task_struct___older_v50* t = (void*)task;
-        struct pid_link* pl = READ_KERN(t->pids);
-        struct pid* p = READ_KERN(pl[PIDTYPE_MAX].pid);
-        nr = READ_KERN(p->numbers[level].nr);
-    }
-    else {
-        struct pid* tpid = READ_KERN(task->thread_pid);
-        nr = READ_KERN(tpid->numbers[level].nr);
-    }
+    // if (bpf_core_type_exists(struct pid_link)) {
+    //     struct task_struct___older_v50* t = (void*)task;
+    //     struct pid_link* pl = READ_KERN(t->pids);
+    //     struct pid* p = READ_KERN(pl[PIDTYPE_MAX].pid);
+    //     nr = READ_KERN(p->numbers[level].nr);
+    // }
+    // else {
+    struct pid* tpid = READ_KERN(task->thread_pid);
+    nr = READ_KERN(tpid->numbers[level].nr);
+    // }
 
     return nr;
 }
@@ -280,16 +297,16 @@ static __always_inline u32 get_task_ns_tgid(struct task_struct* task) {
     unsigned int level = READ_KERN(pid_ns_children->level);
     struct task_struct* group_leader = READ_KERN(task->group_leader);
 
-    if (bpf_core_type_exists(struct pid_link)) {
-        struct task_struct___older_v50* gl = (void*)group_leader;
-        struct pid_link* pl = READ_KERN(gl->pids);
-        struct pid* p = READ_KERN(pl[PIDTYPE_MAX].pid);
-        nr = READ_KERN(p->numbers[level].nr);
-    }
-    else {
-        struct pid* tpid = READ_KERN(group_leader->thread_pid);
-        nr = READ_KERN(tpid->numbers[level].nr);
-    }
+    // if (bpf_core_type_exists(struct pid_link)) {
+    //     struct task_struct___older_v50* gl = (void*)group_leader;
+    //     struct pid_link* pl = READ_KERN(gl->pids);
+    //     struct pid* p = READ_KERN(pl[PIDTYPE_MAX].pid);
+    //     nr = READ_KERN(p->numbers[level].nr);
+    // }
+    // else {
+    struct pid* tpid = READ_KERN(group_leader->thread_pid);
+    nr = READ_KERN(tpid->numbers[level].nr);
+    // }
     return nr;
 }
 
@@ -299,16 +316,16 @@ static __always_inline u32 get_task_ns_ppid(struct task_struct* task) {
     struct nsproxy* namespaceproxy = READ_KERN(real_parent->nsproxy);
     struct pid_namespace* pid_ns_children = READ_KERN(namespaceproxy->pid_ns_for_children);
     unsigned int level = READ_KERN(pid_ns_children->level);
-    if (bpf_core_type_exists(struct pid_link)) {
-        struct task_struct___older_v50* rp = (void*)real_parent;
-        struct pid_link* pl = READ_KERN(rp->pids);
-        struct pid* p = READ_KERN(pl[PIDTYPE_MAX].pid);
-        nr = READ_KERN(p->numbers[level].nr);
-    }
-    else {
-        struct pid* tpid = READ_KERN(real_parent->thread_pid);
-        nr = READ_KERN(tpid->numbers[level].nr);
-    }
+    // if (bpf_core_type_exists(struct pid_link)) {
+    //     struct task_struct___older_v50* rp = (void*)real_parent;
+    //     struct pid_link* pl = READ_KERN(rp->pids);
+    //     struct pid* p = READ_KERN(pl[PIDTYPE_MAX].pid);
+    //     nr = READ_KERN(p->numbers[level].nr);
+    // }
+    // else {
+    struct pid* tpid = READ_KERN(real_parent->thread_pid);
+    nr = READ_KERN(tpid->numbers[level].nr);
+    // }
 
     return nr;
 }
@@ -366,50 +383,50 @@ static __always_inline const char* get_cgroup_dirname(struct cgroup* cgrp) {
     return READ_KERN(kn->name);
 }
 
-static __always_inline const u64 get_cgroup_id(struct cgroup* cgrp) {
-    struct kernfs_node* kn = READ_KERN(cgrp->kn);
+// static __always_inline const u64 get_cgroup_id(struct cgroup* cgrp) {
+//     struct kernfs_node* kn = READ_KERN(cgrp->kn);
 
-    if (kn == NULL)
-        return 0;
+//     if (kn == NULL)
+//         return 0;
 
-    u64 id; // was union kernfs_node_id before 5.5, can read it as u64 in both situations
+//     u64 id; // was union kernfs_node_id before 5.5, can read it as u64 in both situations
 
-    if (bpf_core_type_exists(union kernfs_node_id)) {
-        struct kernfs_node___older_v55* kn_old = (void*)kn;
-        struct kernfs_node___rh8* kn_rh8 = (void*)kn;
+//     if (bpf_core_type_exists(union kernfs_node_id)) {
+//         struct kernfs_node___older_v55* kn_old = (void*)kn;
+//         struct kernfs_node___rh8* kn_rh8 = (void*)kn;
 
-        if (bpf_core_field_exists(kn_rh8->id)) {
-            // RHEL8 has both types declared: union and u64:
-            //     kn->id
-            //     rh->rh_kabi_hidden_172->id
-            // pointing to the same data
-            bpf_core_read(&id, sizeof(u64), &kn_rh8->id);
-        }
-        else {
-            // all other regular kernels bellow v5.5
-            bpf_core_read(&id, sizeof(u64), &kn_old->id);
-        }
+//         if (bpf_core_field_exists(kn_rh8->id)) {
+//             // RHEL8 has both types declared: union and u64:
+//             //     kn->id
+//             //     rh->rh_kabi_hidden_172->id
+//             // pointing to the same data
+//             bpf_core_read(&id, sizeof(u64), &kn_rh8->id);
+//         }
+//         else {
+//             // all other regular kernels bellow v5.5
+//             bpf_core_read(&id, sizeof(u64), &kn_old->id);
+//         }
 
-    }
-    else {
-        // kernel v5.5 and above
-        bpf_core_read(&id, sizeof(u64), &kn->id);
-    }
+//     }
+//     else {
+//         // kernel v5.5 and above
+//         bpf_core_read(&id, sizeof(u64), &kn->id);
+//     }
 
-    return id;
-}
+//     return id;
+// }
 
-static __always_inline const u32 get_cgroup_hierarchy_id(struct cgroup* cgrp) {
-    struct cgroup_root* root = READ_KERN(cgrp->root);
-    return READ_KERN(root->hierarchy_id);
-}
+// static __always_inline const u32 get_cgroup_hierarchy_id(struct cgroup* cgrp) {
+//     struct cgroup_root* root = READ_KERN(cgrp->root);
+//     return READ_KERN(root->hierarchy_id);
+// }
 
-static __always_inline const u64 get_cgroup_v1_subsys0_id(struct task_struct* task) {
-    struct css_set* cgroups = READ_KERN(task->cgroups);
-    struct cgroup_subsys_state* subsys0 = READ_KERN(cgroups->subsys[0]);
-    struct cgroup* cgroup = READ_KERN(subsys0->cgroup);
-    return get_cgroup_id(cgroup);
-}
+// static __always_inline const u64 get_cgroup_v1_subsys0_id(struct task_struct* task) {
+//     struct css_set* cgroups = READ_KERN(task->cgroups);
+//     struct cgroup_subsys_state* subsys0 = READ_KERN(cgroups->subsys[0]);
+//     struct cgroup* cgroup = READ_KERN(subsys0->cgroup);
+//     return get_cgroup_id(cgroup);
+// }
 
 static __always_inline bool is_x86_compat(struct task_struct* task) {
 #if defined(bpf_target_x86)

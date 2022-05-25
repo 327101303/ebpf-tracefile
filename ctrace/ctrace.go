@@ -17,6 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"unsafe"
 
 	bpf "github.com/aquasecurity/libbpfgo"
 )
@@ -27,8 +28,9 @@ type CtraceConfig struct {
 	Filter         *Filter
 	OutputFormat   string
 	PerfBufferSize int
-	EventsPath     string
-	ErrorsPath     string
+	// BlobPerfBufferSize int
+	EventsPath string
+	ErrorsPath string
 }
 
 type Filter struct {
@@ -64,11 +66,14 @@ type statsStore struct {
 
 type Ctrace struct {
 	config        CtraceConfig
-	bpfModule     *bpf.Module
 	eventsToTrace map[int32]bool
+	bpfModule     *bpf.Module
 	eventsPerfMap *bpf.PerfBuffer
+	// fileWrPerfMap *bpf.PerfBuffer
 	eventsChannel chan []byte
+	// fileWrChannel chan []byte
 	lostEvChannel chan uint64
+	// lostWrChannel chan uint64
 	printer       eventPrinter
 	stats         statsStore
 	capturedFiles map[string]int64
@@ -320,6 +325,18 @@ func (t *Ctrace) populateBPFMaps() error {
 	bpfConfigMap.Update(uint32(configTraceePid), uint32(os.Getpid()))
 	// bpfConfigMap.Update(uint32(configFilterByUid), uint32(len(t.config.Filter.UIDs)))
 
+	// Initialize tail calls program array
+	// errs := make([]error, 0)
+	// errs = append(errs, t.initTailCall(tailVfsWrite, "prog_array", "trace_ret_vfs_write_tail"))
+	// errs = append(errs, t.initTailCall(tailVfsWritev, "prog_array", "trace_ret_vfs_writev_tail"))
+	// // errs = append(errs, t.initTailCall(tailSendBin, "prog_array", "send_bin"))
+	// // errs = append(errs, t.initTailCall(tailSendBinTP, "prog_array_tp", "send_bin_tp"))
+	// for _, e := range errs {
+	// 	if e != nil {
+	// 		return e
+	// 	}
+	// }
+
 	err := t.setStringFilter(t.config.Filter.CommFilter, "comm_filter", configCommFilter)
 	if err != nil {
 		return fmt.Errorf("error setting comm filter: %v", err)
@@ -339,6 +356,7 @@ func (t *Ctrace) populateBPFMaps() error {
 		}
 		paramsTypesBPFMap.Update(e, paramsTypes)
 		paramsNamesBPFMap.Update(e, paramsNames)
+		// TODO ???if e == ExecveEventID || e == ExecveatEventID {
 	}
 	return nil
 }
@@ -465,19 +483,20 @@ func (t *Ctrace) initBPF() error {
 	// for event, ok := range t.eventsToTrace {
 	// 	log.Println("eventsToTrace ", strconv.FormatInt(int64(event), 10), strconv.FormatBool(ok))
 	// }
-	log.Println("initBPF: BPF Loading object")
+	// log.Println("initBPF: BPF Loading object")
 	err = t.bpfModule.BPFLoadObject()
 	if err != nil {
 		return fmt.Errorf("error loading object from bpf module, %v", err)
 	}
 
-	log.Println("initBPF: BPF populating BPF maps")
+	// log.Println("initBPF: BPF populating BPF maps")
 	err = t.populateBPFMaps()
 	if err != nil {
 		return fmt.Errorf("error populating ebpf map, %v", err)
 	}
 
 	log.Println("initBPF: attaching BPF probs")
+	log.Println("len eventsToTrace:", len(t.eventsToTrace))
 	for e, _ := range t.eventsToTrace {
 		event, ok := EventsIDToEvent[e]
 		if !ok {
@@ -486,6 +505,7 @@ func (t *Ctrace) initBPF() error {
 		for _, probe := range event.Probes {
 			if probe.attach == sysCall {
 				// Already handled by raw_syscalls tracepoints
+				log.Println("跟踪系统调用：", probe.fn)
 				continue
 			}
 			prog, err := t.bpfModule.GetProgram(probe.fn)
@@ -512,7 +532,9 @@ func (t *Ctrace) initBPF() error {
 			if err != nil {
 				return fmt.Errorf("error attaching event %s: %v", probe.event, err)
 			}
-			log.Println("attached program", probe.event, probe.fn, probe.attach)
+			if !event.EssentialEvent {
+				log.Println("attached program", probe.event, probe.fn, probe.attach)
+			}
 		}
 	}
 
@@ -524,7 +546,34 @@ func (t *Ctrace) initBPF() error {
 		return fmt.Errorf("error initializing events perf map: %v", err)
 	}
 
+	// t.fileWrChannel = make(chan []byte, 1000)
+	// t.lostWrChannel = make(chan uint64)
+	// t.fileWrPerfMap, err = t.bpfModule.InitPerfBuf("file_writes", t.fileWrChannel, t.lostWrChannel, t.config.BlobPerfBufferSize)
+	// if err != nil {
+	// 	return fmt.Errorf("error initializing file_writes perf map: %v", err)
+	// }
+
 	return nil
+}
+
+// Initialize tail calls program array
+func (t *Ctrace) initTailCall(tailNum uint32, mapName string, progName string) error {
+
+	bpfMap, err := t.bpfModule.GetMap(mapName)
+	if err != nil {
+		return err
+	}
+	bpfProg, err := t.bpfModule.GetProgram(progName)
+	if err != nil {
+		return fmt.Errorf("could not get BPF program "+progName+": %v", err)
+	}
+	fd := bpfProg.GetFd()
+	if fd < 0 {
+		return fmt.Errorf("could not get BPF program FD for "+progName+": %v", err)
+	}
+	err = bpfMap.Update(unsafe.Pointer(&tailNum), unsafe.Pointer(&fd))
+
+	return err
 }
 
 // Run starts the trace. it will run until interrupted
