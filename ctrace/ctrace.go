@@ -209,6 +209,7 @@ func (t *Ctrace) initEventsParams() map[int32][]eventParam {
 	seenNames[1] = make(map[string]bool)
 	ParamNameCounter[1] = argTag(1)
 	paramT := noneT
+	// 事件ID，事件ArgMeta{name,type}
 	for id, params := range EventsIDToParams {
 		for _, param := range params {
 			switch param.Type {
@@ -344,6 +345,8 @@ func (t *Ctrace) populateBPFMaps() error {
 
 	eventsParams := t.initEventsParams()
 
+	sysEnterTailsBPFMap, _ := t.bpfModule.GetMap("sys_enter_tails")
+
 	paramsTypesBPFMap, _ := t.bpfModule.GetMap("params_types_map")
 	paramsNamesBPFMap, _ := t.bpfModule.GetMap("params_names_map")
 	for e := range t.eventsToTrace {
@@ -356,7 +359,23 @@ func (t *Ctrace) populateBPFMaps() error {
 		}
 		paramsTypesBPFMap.Update(e, paramsTypes)
 		paramsNamesBPFMap.Update(e, paramsNames)
-		// TODO ???if e == ExecveEventID || e == ExecveatEventID {
+
+		if e == ExecveEventID || e == ExecveatEventID {
+			event, ok := EventsIDToEvent[e]
+			if !ok {
+				continue
+			}
+
+			probFnName := fmt.Sprintf("syscall__%s", event.Name)
+
+			// execve functions require tail call on syscall enter as they perform extra work
+			prog, err := t.bpfModule.GetProgram(probFnName)
+			if err != nil {
+				return fmt.Errorf("error loading BPF program %s: %v", probFnName, err)
+			}
+			sysEnterTailsBPFMap.Update(e, int32(prog.GetFd()))
+			fmt.Println("execve:\t", prog.GetFd())
+		}
 	}
 	return nil
 }
@@ -679,6 +698,9 @@ func (t *Ctrace) decodeRawEvent(done <-chan struct{}) (<-chan RawEvent, <-chan e
 				}
 				argsTags[i] = tag
 				rawArgs[tag] = val
+
+				// fmt.Printf("tag:%s,val:%s\t", tag, val)
+				// fmt.Println()
 			}
 			select {
 			case out <- RawEvent{ctx, rawArgs, argsTags}:
@@ -739,7 +761,9 @@ func (t *Ctrace) prepareEventForPrint(done <-chan struct{}, in <-chan RawEvent) 
 					errc <- fmt.Errorf("Invalid arg tag for event %d", rawEvent.Ctx.Event_id)
 					continue
 				}
+
 			}
+			// fmt.Println(argMetas, "\t", args)
 			evt, err := newEvent(rawEvent.Ctx, argMetas, args)
 			if err != nil {
 				errc <- err
@@ -810,6 +834,7 @@ func (t *Ctrace) prepareArgsForPrint(ctx *context, args map[argTag]interface{}) 
 	for key, arg := range args {
 		if ptr, isUintptr := arg.(uintptr); isUintptr {
 			args[key] = fmt.Sprintf("0x%X", ptr)
+			// fmt.Println("%s", args[key])
 		}
 	}
 	switch ctx.Event_id {

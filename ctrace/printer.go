@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"text/template"
 )
 
@@ -97,6 +98,15 @@ func (p tableEventPrinter) Print(event Event) {
 
 	fmt.Fprintf(p.out, "%-14f %-6d %-16s %-7d %-7d %-16d %-20s ", event.Timestamp, event.UserID, event.ProcessName, event.ProcessID, event.ThreadID, event.ReturnValue, event.EventName)
 	for i, arg := range event.Args {
+		if arg.Name == "fd" {
+			path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", event.ProcessID, arg.Value))
+			if err != nil {
+				fmt.Errorf("Don't get pathname from fd:%v", err)
+			}
+			arg.Name = "pathname: " + path
+			NewValue := fmt.Sprintf("%v", arg.Value)
+			arg.Value = "fd: " + NewValue
+		}
 		if i == 0 {
 			fmt.Fprintf(p.out, "%s: %v", arg.Name, arg.Value)
 		} else {

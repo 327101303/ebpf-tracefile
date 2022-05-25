@@ -691,6 +691,8 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
         args_tmp.args[4] = READ_KERN(PT_REGS_PARM5(regs));
         args_tmp.args[5] = READ_KERN(PT_REGS_PARM6(regs));
     }
+    // bpf_printk("%ld\t%ld\t%ld\t -> ", args_tmp.args[0], args_tmp.args[1], args_tmp.args[2]);
+    // bpf_printk("%ld\t%ld\t%ld\t\n", args_tmp.args[3], args_tmp.args[4], args_tmp.args[5]);
 #else  // CONFIG_ARCH_HAS_SYSCALL_WRAPPER
     bpf_probe_read(args_tmp.args, sizeof(6 * sizeof(u64)), (void*)ctx->args);
     // bpf_printk("%ld\t%ld\t%ld\t", args_tmp.args[0], args_tmp.args[1], args_tmp.args[2]);
@@ -750,7 +752,7 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
 
     // call syscall handler, if exists
     // enter tail calls should never delete saved args
-    // bpf_tail_call(ctx, &sys_enter_tails, id);
+    bpf_tail_call(ctx, &sys_enter_tails, id);
     return 0;
 }
 
@@ -788,7 +790,7 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args* ctx) {
     if (id == SYS_CLONE || id == SYS_FORK || id == SYS_VFORK) {
         //add_container_pid_ns();
         add_pid();
-        bpf_printk("raw_tracepoint_sys_exit add this id: %d to map", id);
+        // bpf_printk("raw_tracepoint_sys_exit add this id: %d to map", id);
     }
     if (event_chosen(RAW_SYS_EXIT)) {
         buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
@@ -869,24 +871,23 @@ SEC("raw_tracepoint/sys_execve")
 int syscall__execve(void* ctx) {
     struct args_t args = {};
     u8 argc = 0;
+
     bool delete_args = false;
     if (load_args(&args, delete_args, SYS_EXECVE) != 0) {
         return -1;
     }
+
     if (!event_chosen(SYS_EXECVE)) {
         return 0;
     }
+
     buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
     if (submit_p == NULL) {
         return 0;
     }
     set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
-    context_t context = {};
-    init_context(&context);
-    context.eventid = SYS_EXECVE;
-    context.argc = 2;
-    context.retval = 0;
-    save_context_to_buf(submit_p, (void*)&context);
+
+    context_t context = init_and_save_context(ctx, submit_p, SYS_EXECVE, 2 /*argnum*/, 0 /*ret*/);
 
     u64* tags = bpf_map_lookup_elem(&params_names_map, &context.eventid);
     if (!tags) {
@@ -897,6 +898,7 @@ int syscall__execve(void* ctx) {
     if (get_config(CONFIG_EXEC_ENV)) {
         argc += save_str_arr_to_buf(submit_p, (const char* const*)args.args[2] /*envp*/, DEC_ARG(2, *tags));
     }
+    bpf_printk("%s\t%s\t%s\n", args.args[0], args.args[1], args.args[2]);
     context.argc = argc;
     save_context_to_buf(submit_p, (void*)&context);
     events_perf_submit(ctx);
@@ -921,11 +923,8 @@ int syscall__execveat(void* ctx) {
         return 0;
     set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
 
-    context_t context = {};
-    init_context(&context);
-    context.eventid = SYS_EXECVEAT;
-    context.argc = 4;
-    context.retval = 0;
+    context_t context = init_and_save_context(ctx, submit_p, SYS_EXECVEAT, 4 /*argnum*/, 0 /*ret*/);
+
     u64* tags = bpf_map_lookup_elem(&params_names_map, &context.eventid);
     if (!tags) {
         return -1;
