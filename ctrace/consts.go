@@ -21,6 +21,7 @@ const (
 	configFollowFilter
 	configNewPidFilter
 	configNewContFilter
+	configCgroupV1
 )
 
 const (

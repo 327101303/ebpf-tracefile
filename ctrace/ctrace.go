@@ -86,6 +86,7 @@ type Ctrace struct {
 // it is used to unmarshal binary data and therefore should match (bit by bit) to the `context_t` struct in the ebpf code.
 type context struct {
 	Ts       uint64
+	CgroupID uint64
 	Pid      uint32
 	Tid      uint32
 	Ppid     uint32
@@ -144,15 +145,6 @@ func supportRawTP() (bool, error) {
 
 // Validate does static validation of the configuration
 func (tc CtraceConfig) Validate() error {
-	// if tc.EventsToTrace == nil {
-	// 	return fmt.Errorf("eventsToTrace is nil")
-	// }
-	// for _, e := range tc.EventsToTrace {
-	// 	_, ok := EventsIDToEvent[e]
-	// 	if !ok {
-	// 		return fmt.Errorf("invalid event to trace: %d", e)
-	// 	}
-	// }
 	if tc.Filter.EventsToTrace == nil {
 		return fmt.Errorf("eventsToTrace is nil")
 	}
@@ -316,6 +308,7 @@ func (t *Ctrace) populateBPFMaps() error {
 		sys32to64BPFMap.Update(event.ID32Bit, event.ID)
 	}
 
+	log.Println("config ready to populated")
 	// Initialize config and pids maps
 	bpfConfigMap, _ := t.bpfModule.GetMap("config_map")
 	bpfConfigMap.Update(uint32(configDetectOrigSyscall), 0)
@@ -324,7 +317,8 @@ func (t *Ctrace) populateBPFMaps() error {
 	bpfConfigMap.Update(uint32(configCaptureFiles), 0)
 	bpfConfigMap.Update(uint32(configExtractDynCode), 0)
 	bpfConfigMap.Update(uint32(configTraceePid), uint32(os.Getpid()))
-	// bpfConfigMap.Update(uint32(configFilterByUid), uint32(len(t.config.Filter.UIDs)))
+	bpfConfigMap.Update(uint32(configCgroupV1), boolToUInt32(t.containers.cgroupV1))
+
 
 	// Initialize tail calls program array
 	// errs := make([]error, 0)
@@ -377,6 +371,8 @@ func (t *Ctrace) populateBPFMaps() error {
 			fmt.Println("execve:\t", prog.GetFd())
 		}
 	}
+	t.containers.PopulateContainersBpfMap(t.bpfModule)
+	
 	return nil
 }
 
@@ -421,11 +417,12 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 	if err != nil {
 		return nil, err
 	}
-	// c := InitContainers()
-	// if err := c.Populate(); err != nil {
-	// 	return nil, fmt.Errorf("error initializing containers: %v", err)
-	// }
-	// t.containers = c
+	log.Println("New: set containers")
+	c := InitContainers()
+	if err := c.Populate(); err != nil {
+		return nil, fmt.Errorf("error initializing containers: %v", err)
+	}
+	t.containers = c
 	log.Println("New: set eventsToTrace")
 	t.eventsToTrace = make(map[int32]bool, len(t.config.Filter.EventsToTrace))
 	for _, e := range t.config.Filter.EventsToTrace {
@@ -499,16 +496,11 @@ func (t *Ctrace) initBPF() error {
 			}
 		}
 	}
-	// for event, ok := range t.eventsToTrace {
-	// 	log.Println("eventsToTrace ", strconv.FormatInt(int64(event), 10), strconv.FormatBool(ok))
-	// }
-	// log.Println("initBPF: BPF Loading object")
 	err = t.bpfModule.BPFLoadObject()
 	if err != nil {
 		return fmt.Errorf("error loading object from bpf module, %v", err)
 	}
 
-	// log.Println("initBPF: BPF populating BPF maps")
 	err = t.populateBPFMaps()
 	if err != nil {
 		return fmt.Errorf("error populating ebpf map, %v", err)
@@ -524,7 +516,6 @@ func (t *Ctrace) initBPF() error {
 		for _, probe := range event.Probes {
 			if probe.attach == sysCall {
 				// Already handled by raw_syscalls tracepoints
-				log.Println("跟踪系统调用：", probe.fn)
 				continue
 			}
 			prog, err := t.bpfModule.GetProgram(probe.fn)

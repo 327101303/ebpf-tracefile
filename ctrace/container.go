@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
 	"time"
+
+	bpf "github.com/aquasecurity/libbpfgo"
 )
 
 // Containers contain information about host running containers in the host.
@@ -262,28 +265,29 @@ const (
 	containerStarted
 )
 
-// func (c *Containers) PopulateBpfMap(bpfModule *bpf.Module) error {
-// 	containersMap, err := bpfModule.GetMap("containers_map")
-// 	if err != nil {
-// 		return err
-// 	}
+func (c *Containers) PopulateContainersBpfMap(bpfModule *bpf.Module) error {
+	containersMap, err := bpfModule.GetMap("existed_containers_map")
+	if err != nil {
+		return err
+	}
 
-// 	for cgroupIdLsb, info := range c.cgroups {
-// 		if info.ContainerId != "" {
-// 			state := containerExisted
-// 			err = containersMap.Update(unsafe.Pointer(&cgroupIdLsb), unsafe.Pointer(&state))
-// 		}
-// 	}
+	for cgroupIdLsb, info := range c.cgroups {
+		if info.ContainerId != "" {
+			state := containerExisted
+			err = containersMap.Update(cgroupIdLsb, state)
+			log.Println(cgroupIdLsb)
+		}
+	}
 
-// 	return err
-// }
+	return err
+}
 
-// func (c *Containers) RemoveFromBpfMap(bpfModule *bpf.Module, cgroupId uint64) error {
-// 	containersMap, err := bpfModule.GetMap("containers_map")
-// 	if err != nil {
-// 		return err
-// 	}
+func (c *Containers) RemoveFromContainersBpfMap(bpfModule *bpf.Module, cgroupId uint64) error {
+	containersMap, err := bpfModule.GetMap("existed_containers_map")
+	if err != nil {
+		return err
+	}
 
-// 	cgroupIdLsb := uint32(cgroupId)
-// 	return containersMap.DeleteKey(unsafe.Pointer(&cgroupIdLsb))
-// }
+	cgroupIdLsb := uint32(cgroupId)
+	return containersMap.DeleteKey(cgroupIdLsb)
+}

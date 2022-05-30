@@ -1,5 +1,5 @@
 
-sudo ./dist/ctrace trace --event sys_enter sys_exit
+sudo ./dist/ctrace trace -e sys_enter
 
 
 # sudo ./dist/ctrace trace --set clone --exclude-comm node sshd cpuUsage.sh

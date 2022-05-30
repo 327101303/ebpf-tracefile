@@ -57,7 +57,11 @@ static __always_inline int init_context(context_t* context) {
     if (uts_name) {
         bpf_probe_read_str(&context->uts_name, TASK_COMM_LEN, uts_name);
     }
-
+    if (get_config(CONFIG_CGROUP_V1)) {
+        context->cgroup_id = get_cgroup_v1_subsys0_id(task);
+    } else {
+        context->cgroup_id = bpf_get_current_cgroup_id();
+    }
     // Save timestamp in microsecond resolution
     context->ts = bpf_ktime_get_ns() / 1000;
 
@@ -535,12 +539,14 @@ static __always_inline int should_trace() {
         return 0;
     }
 
-    //only trace containers
-    bool is_container = bpf_map_lookup_elem(&containers_map, &context.pid_id) != 0;
-    if (!is_container)
-    {
-        return 0;
+    
+    //trace existed containers or new containers
+    u32 cgroup_id_lsb = context.cgroup_id;
+    if(bpf_map_lookup_elem(&existed_containers_map, &cgroup_id_lsb)==0 && 
+        bpf_map_lookup_elem(&containers_map, &context.pid_id) == 0){
+        return 0;        
     }
+
 
     if (!equality_filter_matches(CONFIG_COMM_FILTER, &comm_filter, &context.comm)) {
         return 0;
@@ -641,14 +647,12 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
 
         id = *id_64;
     }
-    u32 pid = bpf_get_current_pid_tgid();
+    //u32 pid = bpf_get_current_pid_tgid();
     //execve events may add new pids to the traced pids set
     if (id == SYS_EXECVE || id == SYS_EXECVEAT) {
         add_container_pid_ns();
-        //add_pid();
-        bpf_printk("raw_tracepoint_sys_exit add this container id: %d to map", id);
+        //bpf_printk("raw_tracepoint_sys_exit add this container pid ns: %d to map", id);
     }
-
     if (!should_trace()) {
         return 0;
     }
@@ -713,8 +717,7 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args* ctx) {
     // perform this check after should_trace() to only add forked childs of a traced parent
     if (id == SYS_CLONE || id == SYS_FORK || id == SYS_VFORK) {
         add_container_pid_ns();
-        //add_pid();
-        bpf_printk("raw_tracepoint_sys_exit add this container id: %d to map", id);
+        //bpf_printk("raw_tracepoint_sys_exit add this containter pid ns id: %d to map", id);
     }
     if (event_chosen(RAW_SYS_EXIT)) {
         buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
@@ -753,7 +756,6 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args* ctx) {
                 submit_event = false;
         }
         if (submit_event) {
-            // bpf_printk("raw_tracepoint_sys_exit called trace_ret_g for:%d, types: %ld, tags: %ld", id, types, tags);
             trace_ret_generic(ctx, id, types, tags, &saved_args, ret);
         }
 

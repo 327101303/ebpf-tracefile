@@ -125,6 +125,7 @@
 #define CONFIG_FOLLOW_FILTER        14
 #define CONFIG_NEW_PID_FILTER       15
 #define CONFIG_NEW_CONT_FILTER      16
+#define CONFIG_CGROUP_V1            17
 
 // get_config(CONFIG_XXX_FILTER) returns 0 if not enabled
 #define FILTER_IN  1
@@ -141,6 +142,7 @@ typedef struct context_t context_t;
 typedef struct buf_t buf_t;
 struct context_t {
     u64 ts;                     // Timestamp
+    u64 cgroup_id;              // Cgroup id
     u32 pid;                    // PID as in the userspace term
     u32 tid;                    // TID as in the userspace term
     u32 ppid;                   // Parent PID as in the userspace term
@@ -190,12 +192,14 @@ BPF_HASH(config_map, u32, u32);
 BPF_HASH(chosen_events_map, u32, u32);
 // Save container pid namespaces
 BPF_HASH(containers_map, u32, u32);
+// map cgroup id to container status {EXISTED, CREATED, STARTED}
+BPF_HASH(existed_containers_map, u32, u8);
 // Persist args info between function entry and return
 BPF_HASH(args_map, u64, struct args_t);
-
-BPF_HASH(ret_map, u64, u64);                            // Persist return value to be used in tail calls
-BPF_HASH(comm_filter, string_filter_t, u32);            // Used to filter events by command name
-
+// Persist return value to be used in tail calls
+BPF_HASH(ret_map, u64, u64);      
+// Used to filter events by command name                      
+BPF_HASH(comm_filter, string_filter_t, u32);            
 // Percpu global buffer variables
 BPF_PERCPU_ARRAY(bufs, struct buf_t, MAX_BUFFERS);
 // Holds offsets to bufs respectively
@@ -206,10 +210,13 @@ BPF_HASH(params_types_map, u32, u64);
 BPF_HASH(params_names_map, u32, u64);
 // Map 32bit syscalls numbers to 64bit syscalls numbers                   
 BPF_HASH(sys_32_to_64_map, u32, u32);
+// Used to store programs for tail calls
+BPF_PROG_ARRAY(prog_array, MAX_TAIL_CALL);
+// Used to store programs for tail calls         
+BPF_PROG_ARRAY(sys_enter_tails, MAX_EVENT_ID);
+// Used to store programs for tail calls
+BPF_PROG_ARRAY(sys_exit_tails, MAX_EVENT_ID);  
 
-BPF_PROG_ARRAY(prog_array, MAX_TAIL_CALL);          // Used to store programs for tail calls
-BPF_PROG_ARRAY(sys_enter_tails, MAX_EVENT_ID);      // Used to store programs for tail calls
-BPF_PROG_ARRAY(sys_exit_tails, MAX_EVENT_ID);       // Used to store programs for tail calls
 
 /*================================== EVENTS ====================================*/
 BPF_PERF_OUTPUT(events);
@@ -383,50 +390,50 @@ static __always_inline const char* get_cgroup_dirname(struct cgroup* cgrp) {
     return READ_KERN(kn->name);
 }
 
-// static __always_inline const u64 get_cgroup_id(struct cgroup* cgrp) {
-//     struct kernfs_node* kn = READ_KERN(cgrp->kn);
+static __always_inline const u64 get_cgroup_id(struct cgroup* cgrp) {
+    struct kernfs_node* kn = READ_KERN(cgrp->kn);
 
-//     if (kn == NULL)
-//         return 0;
+    if (kn == NULL)
+        return 0;
 
-//     u64 id; // was union kernfs_node_id before 5.5, can read it as u64 in both situations
+    u64 id; // was union kernfs_node_id before 5.5, can read it as u64 in both situations
 
-//     if (bpf_core_type_exists(union kernfs_node_id)) {
-//         struct kernfs_node___older_v55* kn_old = (void*)kn;
-//         struct kernfs_node___rh8* kn_rh8 = (void*)kn;
+    if (bpf_core_type_exists(union kernfs_node_id)) {
+        struct kernfs_node___older_v55* kn_old = (void*)kn;
+        struct kernfs_node___rh8* kn_rh8 = (void*)kn;
 
-//         if (bpf_core_field_exists(kn_rh8->id)) {
-//             // RHEL8 has both types declared: union and u64:
-//             //     kn->id
-//             //     rh->rh_kabi_hidden_172->id
-//             // pointing to the same data
-//             bpf_core_read(&id, sizeof(u64), &kn_rh8->id);
-//         }
-//         else {
-//             // all other regular kernels bellow v5.5
-//             bpf_core_read(&id, sizeof(u64), &kn_old->id);
-//         }
+        if (bpf_core_field_exists(kn_rh8->id)) {
+            // RHEL8 has both types declared: union and u64:
+            //     kn->id
+            //     rh->rh_kabi_hidden_172->id
+            // pointing to the same data
+            bpf_core_read(&id, sizeof(u64), &kn_rh8->id);
+        }
+        else {
+            // all other regular kernels bellow v5.5
+            bpf_core_read(&id, sizeof(u64), &kn_old->id);
+        }
 
-//     }
-//     else {
-//         // kernel v5.5 and above
-//         bpf_core_read(&id, sizeof(u64), &kn->id);
-//     }
+    }
+    else {
+        // kernel v5.5 and above
+        bpf_core_read(&id, sizeof(u64), &kn->id);
+    }
 
-//     return id;
-// }
+    return id;
+}
 
-// static __always_inline const u32 get_cgroup_hierarchy_id(struct cgroup* cgrp) {
-//     struct cgroup_root* root = READ_KERN(cgrp->root);
-//     return READ_KERN(root->hierarchy_id);
-// }
+static __always_inline const u32 get_cgroup_hierarchy_id(struct cgroup* cgrp) {
+    struct cgroup_root* root = READ_KERN(cgrp->root);
+    return READ_KERN(root->hierarchy_id);
+}
 
-// static __always_inline const u64 get_cgroup_v1_subsys0_id(struct task_struct* task) {
-//     struct css_set* cgroups = READ_KERN(task->cgroups);
-//     struct cgroup_subsys_state* subsys0 = READ_KERN(cgroups->subsys[0]);
-//     struct cgroup* cgroup = READ_KERN(subsys0->cgroup);
-//     return get_cgroup_id(cgroup);
-// }
+static __always_inline const u64 get_cgroup_v1_subsys0_id(struct task_struct* task) {
+    struct css_set* cgroups = READ_KERN(task->cgroups);
+    struct cgroup_subsys_state* subsys0 = READ_KERN(cgroups->subsys[0]);
+    struct cgroup* cgroup = READ_KERN(subsys0->cgroup);
+    return get_cgroup_id(cgroup);
+}
 
 static __always_inline bool is_x86_compat(struct task_struct* task) {
 #if defined(bpf_target_x86)
