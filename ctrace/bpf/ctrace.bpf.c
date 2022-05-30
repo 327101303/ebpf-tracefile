@@ -132,59 +132,6 @@ static __always_inline int save_to_buf(buf_t* submit_p, void* ptr, u32 size, u8 
     return 0;
 }
 
-/*
-static __always_inline int save_to_buf(buf_t* submit_p, void* ptr, int size, u8 type, u8 tag) {
-    // The biggest element that can be saved with this function should be defined here
-#define MAX_ELEMENT_SIZE sizeof(struct sockaddr_un)
-
-    // Data saved to submit buf: [type][tag][*ptr]
-    if (type == 0)
-        return 0;
-
-    if (size == 0)
-        return 0;
-
-    //get the submit buff offset from BPF_PERCPU_ARRAY: buffs_off
-    u32* off = get_buf_off(SUBMIT_BUF_IDX);
-    if (off == NULL)
-        return -1;
-    if (*off > MAX_PERCPU_BUFSIZE - MAX_ELEMENT_SIZE)
-        // Satisfy validator for probe read
-        return 0;
-
-    // Save argument type
-    int rc = bpf_probe_read(&(submit_p->buf[*off]), 1, &type);
-    if (rc != 0)
-        return 0;
-
-    *off += 1;
-
-
-
-    // Save argument tag
-    // *off & (MAX_PERCPU_BUFSIZE-1) make sure the offset won't beyond the buffer limit
-    if (tag != TAG_NONE) {
-        rc = bpf_probe_read(&(submit_p->buf[*off & (MAX_PERCPU_BUFSIZE - 1)]), 1, &tag);
-        if (rc != 0)
-            return 0;
-
-        *off += 1;
-    }
-
-    if (*off > MAX_PERCPU_BUFSIZE - MAX_ELEMENT_SIZE)
-        // Satisfy validator for probe read
-        return 0;
-
-    // Read into buffer
-    rc = bpf_probe_read(&(submit_p->buf[*off]), size, ptr);
-    if (rc == 0) {
-        *off += size;
-        set_buf_off(SUBMIT_BUF_IDX, *off);
-        return size;
-    }
-    return 0;
-}
-*/
 
 // Context will always be at the start of the submission buffer
 // It may be needed to resave the context if the arguments number changed by logic
@@ -529,7 +476,7 @@ static __always_inline int del_retval(u32 event_id) {
 
 static __always_inline u32 add_pid() {
     u32 pid = bpf_get_current_pid_tgid();
-    if (bpf_map_lookup_elem(&containers_map, &pid)) {
+    if (bpf_map_lookup_elem(&containers_map, &pid) == 0) {
         bpf_map_update_elem(&containers_map, &pid, &pid, BPF_ANY);
     }
 
@@ -588,11 +535,12 @@ static __always_inline int should_trace() {
         return 0;
     }
 
-    // if (get_config(CONFIG_FILTER_UID) > 0) {
-    //     if (!uid_filter_matches()) {
-    //         return 0;
-    //     }
-    // }
+    //only trace containers
+    bool is_container = bpf_map_lookup_elem(&containers_map, &context.pid_id) != 0;
+    if (!is_container)
+    {
+        return 0;
+    }
 
     if (!equality_filter_matches(CONFIG_COMM_FILTER, &comm_filter, &context.comm)) {
         return 0;
@@ -605,19 +553,13 @@ static __always_inline int trace_ret_generic(void* ctx, u32 id, u64 types, u64 t
     buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
     if (submit_p == NULL)
         return 0;
-    // bpf_printk("trace_ret_generic, got submit_p");
     set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
-
     u8 argnum = save_args_to_buf(types, tags, args);
-    // bpf_printk("trace_ret_generic, saved types and tags");
-
     init_and_save_context(ctx, submit_p, id, argnum, ret);
-
-
     events_perf_submit(ctx);
-    // bpf_printk("trace_ret_generic, submitted context");
     return 0;
 }
+
 
 #define TRACE_ENT_FUNC(name, id)                                        \
 int trace_##name(void *ctx)                                             \
@@ -658,10 +600,6 @@ int trace_ret_##name(void *ctx)                                         \
  // TODO sys_enter
 SEC("raw_tracepoint/sys_enter")
 int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
-    if (!should_trace()) {
-        return 0;
-    }
-
     struct args_t args_tmp = {};
     struct task_struct* task = (struct task_struct*)bpf_get_current_task();
     int id = ctx->args[1];
@@ -691,12 +629,8 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
         args_tmp.args[4] = READ_KERN(PT_REGS_PARM5(regs));
         args_tmp.args[5] = READ_KERN(PT_REGS_PARM6(regs));
     }
-    // bpf_printk("%ld\t%ld\t%ld\t -> ", args_tmp.args[0], args_tmp.args[1], args_tmp.args[2]);
-    // bpf_printk("%ld\t%ld\t%ld\t\n", args_tmp.args[3], args_tmp.args[4], args_tmp.args[5]);
 #else  // CONFIG_ARCH_HAS_SYSCALL_WRAPPER
     bpf_probe_read(args_tmp.args, sizeof(6 * sizeof(u64)), (void*)ctx->args);
-    // bpf_printk("%ld\t%ld\t%ld\t", args_tmp.args[0], args_tmp.args[1], args_tmp.args[2]);
-    // bpf_printk("%ld\t%ld\t%ld\t", args_tmp.args[3], args_tmp.args[4], args_tmp.args[5]);
 #endif // CONFIG_ARCH_HAS_SYSCALL_WRAPPER
 
     if (is_compat(task)) {
@@ -707,19 +641,17 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
 
         id = *id_64;
     }
-
     u32 pid = bpf_get_current_pid_tgid();
+    //execve events may add new pids to the traced pids set
+    if (id == SYS_EXECVE || id == SYS_EXECVEAT) {
+        add_container_pid_ns();
+        //add_pid();
+        bpf_printk("raw_tracepoint_sys_exit add this container id: %d to map", id);
+    }
 
-
-
-    // execve events may add new pids to the traced pids set
-    // if (id == SYS_EXECVE || id == SYS_EXECVEAT) {
-    //     //add_container_pid_ns();
-    //     // add_pid();
-    //     // We passed all filters (in should_trace()) - add this pid to traced pids set
-    //     bpf_map_update_elem(&traced_pids_map, &pid, &pid, BPF_ANY);
-    //     // bpf_printk("raw_tracepoint_sys_exit add this id: %d to map", id);
-    // }
+    if (!should_trace()) {
+        return 0;
+    }
 
     if (event_chosen(RAW_SYS_ENTER)) {
         buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
@@ -729,12 +661,6 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
 
         set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
         context_t context = init_and_save_context((void*)ctx, submit_p, RAW_SYS_ENTER, 1 /*argnum*/, 0 /*ret*/);
-        // context_t context = {};
-        // init_context(&context);
-        // context.eventid = RAW_SYS_ENTER;
-        // context.argc = 1;
-        // context.retval = 0;
-        // save_context_to_buf(submit_p, (void*)&context);
 
         u64* tags = bpf_map_lookup_elem(&params_names_map, &context.eventid);
         if (!tags) {
@@ -747,7 +673,6 @@ int tracepoint__raw_syscalls__sys_enter(struct bpf_raw_tracepoint_args* ctx) {
     // exit, exit_group and rt_sigreturn syscalls don't return - don't save args for them
     if (id != SYS_EXIT && id != SYS_EXIT_GROUP && id != SYS_RT_SIGRETURN) {
         save_args(&args_tmp, id);
-        // save_args_from_regs(&args_tmp, id, true);
     }
 
     // call syscall handler, if exists
@@ -783,14 +708,13 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args* ctx) {
 
     if (!should_trace())
         return 0;
-    // del_args(id);
 
     // fork events may add new pids to the traced pids set
     // perform this check after should_trace() to only add forked childs of a traced parent
     if (id == SYS_CLONE || id == SYS_FORK || id == SYS_VFORK) {
-        //add_container_pid_ns();
-        add_pid();
-        // bpf_printk("raw_tracepoint_sys_exit add this id: %d to map", id);
+        add_container_pid_ns();
+        //add_pid();
+        bpf_printk("raw_tracepoint_sys_exit add this container id: %d to map", id);
     }
     if (event_chosen(RAW_SYS_EXIT)) {
         buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
@@ -835,34 +759,17 @@ int tracepoint__raw_syscalls__sys_exit(struct bpf_raw_tracepoint_args* ctx) {
 
     }
     // call syscall handler, if exists
-    save_args(&saved_args, id);
-    save_retval(ret, id);
+    // save_args(&saved_args, id);
+    // save_retval(ret, id);
     // exit tail calls should always delete args and retval before return
     // bpf_tail_call(ctx, &sys_exit_tails, id);
-    del_retval(id);
-    del_args(id);
+    // del_retval(id);
+    // del_args(id);
     return 0;
 }
 
 SEC("raw_tracepoint/sched_process_exit")
 int tracepoint__sched__sched_process_exit(struct bpf_raw_tracepoint_args* ctx) {
-
-    // if (!should_trace())
-    //     return 0;
-
-    // if (get_config(CONFIG_MODE) == MODE_CONTAINER_NEW)
-    //     remove_pid_ns_if_needed();
-    // else
-    // remove_pid();
-
-    // buf_t* submit_p = get_buf(SUBMIT_BUF_IDX);
-    // if (submit_p == NULL)
-    //     return 0;
-    // set_buf_off(SUBMIT_BUF_IDX, sizeof(context_t));
-
-    // init_and_save_context(ctx, submit_p, SCHED_PROCESS_EXIT, 0, 0);
-
-    // events_perf_submit(ctx);
     return 0;
 }
 

@@ -1,1 +1,1 @@
-make clean && make build && ./run.sh
+make clean && make build
