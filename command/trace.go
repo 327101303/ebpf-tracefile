@@ -188,7 +188,8 @@ var listSubCmd = &cli.Command{
 			if err := c.Populate(); err != nil {
 				return fmt.Errorf("error initializing containers: %v", err)
 			}
-			fmt.Println(c.GetContainers())
+			c.GetContainers()
+			// fmt.Println(c.GetContainers())
 		}
 		return nil
 	},

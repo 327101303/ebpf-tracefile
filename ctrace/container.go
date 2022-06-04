@@ -11,9 +11,15 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
 	bpf "github.com/aquasecurity/libbpfgo"
+
+	dockerContext "context"
+
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/client"
 )
 
 // Containers contain information about host running containers in the host.
@@ -165,6 +171,7 @@ func (c *Containers) CgroupLookupUpdate(cgroupId uint64) error {
 // add cgroupId with a matching container id, extracted from path
 func (c *Containers) CgroupUpdate(cgroupId uint64, path string) (CgroupInfo, error) {
 	info := CgroupInfo{Path: path}
+	// log.Println(cgroupId, path) //40 /sys/fs/cgroup/cpuset
 
 	for _, pc := range strings.Split(path, "/") {
 		if len(pc) < 64 {
@@ -176,6 +183,7 @@ func (c *Containers) CgroupUpdate(cgroupId uint64, path string) (CgroupInfo, err
 		}
 		info.ContainerId = containerId
 		info.Runtime = runtime
+		// log.Println("CgroupUpdate", path, info.ContainerId, info.Runtime)
 	}
 
 	c.cgroups[uint32(cgroupId)] = info
@@ -238,14 +246,55 @@ func (c *Containers) CgroupRemove(cgroupId uint64) {
 }
 
 // GetContainers provides a list of all added containers by their uuid.
-func (c *Containers) GetContainers() []string {
-	var conts []string
-	for _, v := range c.cgroups {
-		if v.ContainerId != "" && v.expiresAt.IsZero() {
-			conts = append(conts, v.ContainerId)
-		}
+func (c *Containers) GetContainers() {
+	// var conts []string
+	// for _, v := range c.cgroups {
+	// 	if v.ContainerId != "" && v.expiresAt.IsZero() {
+	// 		conts = append(conts, v.ContainerId[:12])
+	// 		// fmt.Println(v.Runtime, v.expiresAt)
+	// 	}
+	// }
+	//第一步：获取ctx
+	ctx := dockerContext.Background()
+
+	//获取cli客户端对象
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		panic(err)
 	}
-	return conts
+	//通过cli客户端对象去执行ContainerList(其实docker ps 不就是一个docker正在运行容器的一个list嘛)
+	containers, err := cli.ContainerList(ctx, types.ContainerListOptions{})
+
+	//下面这条命令可以获取到docker ps -a 也就是所有容器包括运行的和没有运行的
+	//containers, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
+	if err != nil {
+		panic(err)
+	}
+
+	//将获取到的结果输出
+	w := tabwriter.NewWriter(os.Stdout, 12, 1, 3, ' ', 0)
+	fmt.Fprint(w, "CONTAINER ID\tIMAGE\tCOMMAND\tCREATED\tSTATUS\tPORTS\tNAME\n")
+	for _, container := range containers {
+		// fmt.Printf("%s,%v", container.Created, container.Created)
+		// created := time.Now().Format("2006-01-02 15:04:05")
+		tm := time.Unix(container.Created, 0)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t",
+			container.ID[:12],
+			container.Image,
+			container.Command,
+			tm.Format("2006-01-02 15:04:05"),
+			container.Status)
+		if len(container.Ports) != 0 {
+			fmt.Fprintf(w, "%v:%v->%v/%v,%v:%v->%v/%v\t",
+				container.Ports[0].IP, container.Ports[0].PublicPort, container.Ports[0].PrivatePort, container.Ports[0].Type,
+				container.Ports[1].IP, container.Ports[1].PublicPort, container.Ports[1].PrivatePort, container.Ports[1].Type)
+		} else {
+			fmt.Fprintf(w, "\t")
+		}
+		fmt.Fprintf(w, "%v\n", strings.TrimLeft(container.Names[0], "/"))
+	}
+	w.Flush()
+	// return conts
 }
 
 func (c *Containers) GetCgroupInfo(cgroupId uint64) CgroupInfo {
@@ -274,8 +323,9 @@ func (c *Containers) PopulateContainersBpfMap(bpfModule *bpf.Module) error {
 	for cgroupIdLsb, info := range c.cgroups {
 		if info.ContainerId != "" {
 			state := containerExisted
+			// 容器cgroupIdLsb的状态state
 			err = containersMap.Update(cgroupIdLsb, state)
-			log.Println(cgroupIdLsb)
+			log.Println("cgroupIdLsb:", cgroupIdLsb)
 		}
 	}
 

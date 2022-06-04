@@ -1,6 +1,7 @@
 SRC = $(shell find . -type f -name '*.go' ! -name '*_test.go' )
 BPFFILE = ctrace/bpf
 OUTPUT = dist
+BPFOUTPUT = dist/ctrace.bpf.o
 
 VMLINUXH = ${BPFFILE}/vmlinux.h
 BTFFILE = /sys/kernel/btf/vmlinux
@@ -12,7 +13,7 @@ CGO_LDFLAGS="-lelf -lz -lbpf"
 CFLAGS =-g -O2 -c -Wall -fpie -Wno-unused-variable -Wno-unused-function
 
 .PHONY: build
-build: bpf-x86 ctrace 
+build: ${BPFOUTPUT} ctrace 
 
 $(OUTPUT):
 	mkdir -p $(OUTPUT)
@@ -41,9 +42,9 @@ endif
 
 #ctrace.bpf.o
 .PHONY: bpf-x86
-bpf-x86: ${BPFFILE}/ctrace.bpf.c | vmlinuxh
+${BPFOUTPUT}: ${BPFFILE}/ctrace.bpf.c | vmlinuxh
 	clang $(CFLAGS) -target bpf -D__TARGET_ARCH_x86 \
-	-o ${OUTPUT}/ctrace.bpf.o ${BPFFILE}/ctrace.bpf.c
+	${BPFFILE}/ctrace.bpf.c -o ${BPFOUTPUT}
 	
 .PHONY: bpf-arm64
 bpf-arm64: ${BPFFILE}/ctrace.bpf.c | vmlinuxh
@@ -61,7 +62,3 @@ ctrace: $(SRC)
 .PHONY: clean
 clean:
 	rm -rf ${OUTPUT}
-
-
-
-

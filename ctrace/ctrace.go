@@ -319,7 +319,6 @@ func (t *Ctrace) populateBPFMaps() error {
 	bpfConfigMap.Update(uint32(configTraceePid), uint32(os.Getpid()))
 	bpfConfigMap.Update(uint32(configCgroupV1), boolToUInt32(t.containers.cgroupV1))
 
-
 	// Initialize tail calls program array
 	// errs := make([]error, 0)
 	// errs = append(errs, t.initTailCall(tailVfsWrite, "prog_array", "trace_ret_vfs_write_tail"))
@@ -372,7 +371,7 @@ func (t *Ctrace) populateBPFMaps() error {
 		}
 	}
 	t.containers.PopulateContainersBpfMap(t.bpfModule)
-	
+
 	return nil
 }
 
@@ -389,6 +388,7 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 		config: cfg,
 	}
 	outf := os.Stdout
+
 	log.Println("New: events path: ", t.config.EventsPath)
 	if t.config.EventsPath != "" {
 		dir := filepath.Dir(t.config.EventsPath)
@@ -400,6 +400,7 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 		}
 		log.Println("New: set the outf by events path")
 	}
+
 	errf := os.Stderr
 	log.Println("New: errors path: ", t.config.ErrorsPath)
 	if t.config.ErrorsPath != "" {
@@ -412,17 +413,20 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 		}
 		log.Println("New: set the errf by events path")
 	}
+
 	log.Println("New: set printer")
 	t.printer, err = newEventPrinter(t.config.OutputFormat, outf, errf)
 	if err != nil {
 		return nil, err
 	}
+
 	log.Println("New: set containers")
 	c := InitContainers()
 	if err := c.Populate(); err != nil {
 		return nil, fmt.Errorf("error initializing containers: %v", err)
 	}
 	t.containers = c
+
 	log.Println("New: set eventsToTrace")
 	t.eventsToTrace = make(map[int32]bool, len(t.config.Filter.EventsToTrace))
 	for _, e := range t.config.Filter.EventsToTrace {
