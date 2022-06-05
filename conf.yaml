@@ -1,4 +1,4 @@
-output-format: json
+output-format: table
 perf-buffer-size: 64
-events-path: ~/ctrace_output/events.json
-errors-path: ""
+events-path: 
+errors-path: 

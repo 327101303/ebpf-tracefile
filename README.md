@@ -1,4 +1,21 @@
-[TOC]
+- [项目介绍](#%E9%A1%B9%E7%9B%AE%E4%BB%8B%E7%BB%8D)
+  - [项目特点](#%E9%A1%B9%E7%9B%AE%E7%89%B9%E7%82%B9)
+- [项目规划](#%E9%A1%B9%E7%9B%AE%E8%A7%84%E5%88%92)
+- [Quickstart](#quickstart)
+  - [环境准备](#%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87)
+  - [编译运行](#%E7%BC%96%E8%AF%91%E8%BF%90%E8%A1%8C)
+- [**功能实现**](#%E5%8A%9F%E8%83%BD%E5%AE%9E%E7%8E%B0)
+  - [eBPF入门](#ebpf%E5%85%A5%E9%97%A8)
+  - [设计与实现](#%E5%8A%9F%E8%83%BD%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0)
+    - [概要设计](#%E6%A6%82%E8%A6%81%E8%AE%BE%E8%AE%A1)
+    - [cli实现](#cli%E5%AE%9E%E7%8E%B0)
+    - [容器行为监控](#%E5%8A%9F%E8%83%BD%E5%AE%9E%E7%8E%B0)
+    - [事件输出](#%E4%BA%8B%E4%BB%B6%E8%BE%93%E5%87%BA)
+  - [功能测试](#%E5%8A%9F%E8%83%BD%E6%B5%8B%E8%AF%95)
+  - [遇到的问题及解决方法](#%E9%81%87%E5%88%B0%E7%9A%84%E9%97%AE%E9%A2%98%E5%8F%8A%E8%A7%A3%E5%86%B3%E6%96%B9%E6%B3%95)
+- [团队介绍](#%E5%9B%A2%E9%98%9F%E4%BB%8B%E7%BB%8D)
+- [参考引用](#%E5%8F%82%E8%80%83%E5%BC%95%E7%94%A8)
+
 
 # 项目介绍
 
@@ -72,7 +89,7 @@ sudo ./dist/ctrace trace --exclude-set fs --comm bash
 sudo ./dist/ctrace trace ls -c
 ```
 
-![openat](../picture/openat-16544392571046.png)
+![openat](./picture/openat.png)
 
 3. config配置输出
 
@@ -87,15 +104,87 @@ sudo ./dist/ctrace config --set events-path=~/ctrace_output/events.json
 sudo ./dist/ctrace config --set errors-path=~/ctrace_output/error.json
 ```
 
+```json
+//json输出如下：
+{
+    "timestamp": 29197306126,       //时间戳
+    "processId": 14891,             //进程ID
+    "threadId": 14891,				//线程ID
+    "parentProcessId": 14876,	    //父进程ID
+    "userId": 0,					//用户ID
+    "mountNamespace": 4026532760, 
+    "pidNamespace": 4026532763,
+    "processName": "cat",
+    "hostName": "f1d4bd003923",     //容器ID
+    "eventId": "257",               //事件ID
+    "eventName": "openat",			//事件名称
+    "argsNum": 4,                   //参数个数
+    "returnValue": 3,
+    "args": [
+        {
+            "name": "dirfd",
+            "type": "int",
+            "value": -100
+        },
+        {
+            "name": "pathname",    //打开的文件名
+            "type": "const char*",
+            "value": "hello_ctrace"
+        },
+        {
+            "name": "flags",
+            "type": "unsigned int",
+            "value": "O_RDONLY"
+        },
+        {
+            "name": "mode",
+            "type": "mode_t",
+            "value": 0
+        }
+    ]
+}
+```
+
 
 
 # **功能实现**
+
+目录结构说明：
+
+```bash
+.
+├── command
+│   ├── common.go              //global flags/action
+│   ├── config.go              //cli config命令
+│   └── trace.go               //trace命令
+├── config
+│   └── config.go              //读写配置文件
+├── ctrace
+│   ├── argprinters.go         //参数打印
+│   ├── bpf                    //bpf.c
+│   │   ├── common.bpf.h
+│   │   ├── ctrace.bpf.c
+│   │   ├── ctrace.bpf.h
+│   │   ├── missing_defines.h
+│   │   └── vmlinux.h
+│   ├── consts.go              //枚举事件，参数类型
+│   ├── container.go           //容器相关实现
+│   ├── ctrace.go			   //ctrace主体功能
+│   ├── events_amd64.go        //枚举事件常量定义
+│   ├── external.go            //事件定义与json输出
+│   └── printer.go             //事件打印
+├── conf.yaml                  //ctrace配置文件
+├── go.mod
+├── go.sum
+├── main.go
+├── Makefile
+```
 
 ## eBPF入门
 
 [eBPF入门](./doc/eBPF入门.md)
 
-## 功能设计与实现
+## 设计与实现
 
 ### 概要设计
 
@@ -107,7 +196,7 @@ sudo ./dist/ctrace config --set errors-path=~/ctrace_output/error.json
 
 [cli实现](./doc/cli实现.md)
 
-### 功能实现
+### 容器行为监控
 
 [容器对文件的访问、系统调用、容器互访](./doc/功能实现.md)
 
@@ -123,15 +212,7 @@ sudo ./dist/ctrace config --set errors-path=~/ctrace_output/error.json
 
 ## 遇到的问题及解决方法
 
-- 怎么通过文件描述符找到文件名？
-
-- cli的StringSlice对逗号的处理导致flag不能同时接收多个参数。2.5.0版本会把StringSliceFlag的逗号分开，当作下一个flag
-- 怎么实现docker ps？
-- makefile中伪target不能检测生成文件的改动，导致冗余编译。使用变量代替字符串target，实现.o文件名与target名一致
-- clang编译器对于#ifdef、#if defined的行为不一样，#ifdef XXX，如果XXX没定义会报错，但是使用#if defined XXX的话，如果XXX没定义不会报错，会走else
-- error: Looks like the BPF stack limit of 512 bytes is exceeded. Please move large on stack variables into BPF per-cpu array map
-
-### ...
+[遇到的问题及解决方法](./doc/遇到的问题及解决方法.md)
 
 # 团队介绍
 
@@ -139,61 +220,13 @@ sudo ./dist/ctrace config --set errors-path=~/ctrace_output/error.json
 
 学习导师：吴松（华中科技大学）
 
-成员与分工：
-
-- 洪涛：系统调用实现、config模块编写、跟踪容器内事件
-- 郭永强：文件系统事件、容器互访实现
-- 吴浩：过程文档整理、项目整体测试
+成员：洪涛、郭永强、吴浩
 
 联系我们：BaldStrong@qq.com
 
 # 参考引用
 
-- [Linux内核调试技术——kprobe使用与实现](https://blog.csdn.net/luckyapple1028/article/details/52972315)
-- [BPF之路一bpf系统调用](https://www.anquanke.com/post/id/263803)
-- [BPF的可移植性和CO-RE (Compile Once – Run Everywhere）](https://www.cnblogs.com/charlieroro/p/14206214.html)
-
-
-
-
-
-# 中期检查README
-
-## how to build ctrace
-Kernel version >= 5.10
-`$sudo apt install build-essential git make libelf-dev strace tar bpfcc-tools libbpf-dev linux-headers-$(uname -r)  linux-tools-common gcc-`
-`$sudo apt install clang llvm`
-configure the environment of building and running libbpf-go ebpf program first
-`$make build`
-you can use blow cmd to clean
-`$make clean`
-more details see Makefile
-
-## how to run ctrace
-1. build ctrace first
-2. `sudo ./dist/ctrace` to run the CLI
-3. the HELP INFO shows the intructions
-
-## design overview
-1. ctrace used libbpf+BPF CO-RE to implement CORE feature
-2. ctrace entrance: main.go
-3. main.go calls cli.App to run the command line applicaion
-4. all commands are define under /command
-5. the /command/common.go defines the global flags/action
-6. the /command/config.go defines the command to set trace configuration, and the /config/config.go includes supported settings
-7. /ctrace/bpf contains the ebpf files, including macro definition, vmlinux file, and bpf program source code
-8. /argprinters.go defines how to print various events
-9. /consts.go defines the events could be traced, according to libbpf
-10. /container.go defines all struct and func about container
-11. /external.go defines Event struct, which represents the event concept
-12. ctrace.go defines the userspace functions
-
-报告内容：
-1. 前期调研：
-通过各类论坛搜索ebpf介绍及使用教学，了解学习了ebpf工具的意义及使用方法。在本项目采用哪种库工具来与ebpf进行交互的讨论中，决定在gobpf、libbpf-go及cilium库中进行选择。最终为贴近实际项目，实现CO-RE特性，选择了libbpf-go作为开发工具，并进行了相关知识的学习。
-2. 导师情况：
-已与校外导师取得联系并添加了微信，并在校内找到了做云计算相关方向的老师作为指导老师。均建立起了稳定的沟通渠道。
-3. 当前开发状况：
-现已大致完成项目（proj118）要求的第二项即容器对系统的调用，正研究另外两项功能涉及的跟踪函数与跟踪点。
-4. 当前困难：
-不清楚容器间互访具体是互访什么、如何互访；容器哪些行为比较重要应重点关注；没有接触过容器在商业领域的使用，对容器上执行的业务以及对应的权限需求了解很少。
+- [aquasecurity/tracee: Linux Runtime Security and Forensics using eBPF (github.com)](https://github.com/aquasecurity/tracee)
+- [Linux内核调试技术——kprobe使用与实现](![img](file:///C:\Users\gyq__\AppData\Roaming\Tencent\QQTempSys\%W@GJ$ACOF(TYDYECOKVDYB.png)https://blog.csdn.net/luckyapple1028/article/details/52972315)
+- [BPF之路一bpf系统调用](![img](file:///C:\Users\gyq__\AppData\Roaming\Tencent\QQTempSys\8LDO48C$8@[GWU0353$FOVS.png)https://www.anquanke.com/post/id/263803)
+- [BPF的可移植性和CO-RE (Compile Once – Run Everywhere）](![img](file:///C:\Users\gyq__\AppData\Roaming\Tencent\QQTempSys\%W@GJ$ACOF(TYDYECOKVDYB.png)https://www.cnblogs.com/charlieroro/p/14206214.html)
