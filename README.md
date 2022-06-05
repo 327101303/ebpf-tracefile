@@ -105,19 +105,19 @@ sudo ./dist/ctrace config --set errors-path=~/ctrace_output/error.json
 ```
 
 ```json
-//json输出如下：
+json输出如下：
 {
     "timestamp": 29197306126,       //时间戳
     "processId": 14891,             //进程ID
-    "threadId": 14891,				//线程ID
-    "parentProcessId": 14876,	    //父进程ID
-    "userId": 0,					//用户ID
+    "threadId": 14891,              //线程ID
+    "parentProcessId": 14876,       //父进程ID
+    "userId": 0,                    //用户ID
     "mountNamespace": 4026532760, 
     "pidNamespace": 4026532763,
     "processName": "cat",
     "hostName": "f1d4bd003923",     //容器ID
     "eventId": "257",               //事件ID
-    "eventName": "openat",			//事件名称
+    "eventName": "openat",          //事件名称
     "argsNum": 4,                   //参数个数
     "returnValue": 3,
     "args": [
@@ -169,7 +169,7 @@ sudo ./dist/ctrace config --set errors-path=~/ctrace_output/error.json
 │   │   └── vmlinux.h
 │   ├── consts.go              //枚举事件，参数类型
 │   ├── container.go           //容器相关实现
-│   ├── ctrace.go			   //ctrace主体功能
+│   ├── ctrace.go			         //ctrace主体功能
 │   ├── events_amd64.go        //枚举事件常量定义
 │   ├── external.go            //事件定义与json输出
 │   └── printer.go             //事件打印
@@ -222,11 +222,9 @@ sudo ./dist/ctrace config --set errors-path=~/ctrace_output/error.json
 
 成员：洪涛、郭永强、吴浩
 
-联系我们：BaldStrong@qq.com
-
 # 参考引用
 
 - [aquasecurity/tracee: Linux Runtime Security and Forensics using eBPF (github.com)](https://github.com/aquasecurity/tracee)
-- [Linux内核调试技术——kprobe使用与实现](![img](file:///C:\Users\gyq__\AppData\Roaming\Tencent\QQTempSys\%W@GJ$ACOF(TYDYECOKVDYB.png)https://blog.csdn.net/luckyapple1028/article/details/52972315)
-- [BPF之路一bpf系统调用](![img](file:///C:\Users\gyq__\AppData\Roaming\Tencent\QQTempSys\8LDO48C$8@[GWU0353$FOVS.png)https://www.anquanke.com/post/id/263803)
-- [BPF的可移植性和CO-RE (Compile Once – Run Everywhere）](![img](file:///C:\Users\gyq__\AppData\Roaming\Tencent\QQTempSys\%W@GJ$ACOF(TYDYECOKVDYB.png)https://www.cnblogs.com/charlieroro/p/14206214.html)
+- [Linux内核调试技术——kprobe使用与实现](https://blog.csdn.net/luckyapple1028/article/details/52972315)
+- [BPF之路一bpf系统调用](https://www.anquanke.com/post/id/263803)
+- [BPF的可移植性和CO-RE (Compile Once – Run Everywhere）](https://www.cnblogs.com/charlieroro/p/14206214.html)
