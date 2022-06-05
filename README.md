@@ -4,7 +4,7 @@
 - [Quickstart](#quickstart)
   - [环境准备](#%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87)
   - [编译运行](#%E7%BC%96%E8%AF%91%E8%BF%90%E8%A1%8C)
-- [**功能实现**](#%E5%8A%9F%E8%83%BD%E5%AE%9E%E7%8E%B0)
+- [功能实现](#%E5%8A%9F%E8%83%BD%E5%AE%9E%E7%8E%B0)
   - [eBPF入门](#ebpf%E5%85%A5%E9%97%A8)
   - [设计与实现](#%E5%8A%9F%E8%83%BD%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0)
     - [概要设计](#%E6%A6%82%E8%A6%81%E8%AE%BE%E8%AE%A1)
@@ -147,7 +147,7 @@ sudo ./dist/ctrace config --set errors-path=~/ctrace_output/error.json
 
 
 
-# **功能实现**
+# 功能实现
 
 目录结构说明：
 
