@@ -120,9 +120,11 @@ func (p tableEventPrinter) Print(event Event) {
 			if err != nil {
 				fmt.Errorf("Don't get pathname from fd:%v", err)
 			}
-			arg.Name = "pathname: " + path
-			NewValue := fmt.Sprintf("%v", arg.Value)
-			arg.Value = "fd: " + NewValue
+			if path != "" {
+				arg.Name = "pathname: " + path
+				NewValue := fmt.Sprintf("%v", arg.Value)
+				arg.Value = ", fd: " + NewValue
+			}
 		}
 		if i == 0 {
 			fmt.Fprintf(p.out, "%s: %v", arg.Name, arg.Value)

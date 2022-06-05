@@ -24,7 +24,7 @@ vmlinuxh: $(VMLINUXH)
 
 $(VMLINUXH): $(OUTPUT)
 ifeq ($(wildcard $(BPFTOOL)),)
-	@echo "ERROR: could not find bpftool, install linux-tool-common and try again"
+	@echo "ERROR: could not find bpftool, install linux-tools-common and try again"
 	@exit 1
 endif
 	@if [ -f $(DBGVMLINUX) ]; then \

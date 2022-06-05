@@ -19,9 +19,10 @@ var traceCmd = &cli.Command{
 			Usage:   "trace only the specified event or syscall. use this flag multiple times to choose multiple events",
 		},
 		&cli.StringSliceFlag{
-			Name:  "exclude-event",
-			Value: nil,
-			Usage: "exclude an event from being traced. use this flag multiple times to choose multiple events to exclude",
+			Name:    "exclude-event",
+			Aliases: []string{"ee"},
+			Value:   nil,
+			Usage:   "exclude an event from being traced. use this flag multiple times to choose multiple events to exclude",
 		},
 		&cli.StringSliceFlag{
 			Name:  "comm",
@@ -105,11 +106,11 @@ var traceCmd = &cli.Command{
 		}
 		for _, s := range ctx.StringSlice("set") {
 			setFilter.Enabled = true
-			setFilter.Equal = append(filter.CommFilter.Equal, s)
+			setFilter.Equal = append(setFilter.Equal, s)
 		}
 		for _, ns := range ctx.StringSlice("exclude-set") {
 			setFilter.Enabled = true
-			setFilter.NotEqual = append(filter.CommFilter.NotEqual, ns)
+			setFilter.NotEqual = append(setFilter.NotEqual, ns)
 		}
 		filter.EventsToTrace, err = prepareEventsToTrace(eventFilter, setFilter, eventsNameToID)
 		if err != nil {

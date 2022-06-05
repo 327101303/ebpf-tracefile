@@ -59,7 +59,8 @@ static __always_inline int init_context(context_t* context) {
     }
     if (get_config(CONFIG_CGROUP_V1)) {
         context->cgroup_id = get_cgroup_v1_subsys0_id(task);
-    } else {
+    }
+    else {
         context->cgroup_id = bpf_get_current_cgroup_id();
     }
     // Save timestamp in microsecond resolution
@@ -539,12 +540,12 @@ static __always_inline int should_trace() {
         return 0;
     }
 
-    
+
     //trace existed containers or new containers
     u32 cgroup_id_lsb = context.cgroup_id;
-    if(bpf_map_lookup_elem(&existed_containers_map, &cgroup_id_lsb)==0 && 
-        bpf_map_lookup_elem(&containers_map, &context.pid_id) == 0){
-        return 0;        
+    if (bpf_map_lookup_elem(&existed_containers_map, &cgroup_id_lsb) == 0 &&
+        bpf_map_lookup_elem(&containers_map, &context.pid_id) == 0) {
+        return 0;
     }
 
 

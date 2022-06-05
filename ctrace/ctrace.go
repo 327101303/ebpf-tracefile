@@ -367,7 +367,7 @@ func (t *Ctrace) populateBPFMaps() error {
 				return fmt.Errorf("error loading BPF program %s: %v", probFnName, err)
 			}
 			sysEnterTailsBPFMap.Update(e, int32(prog.GetFd()))
-			fmt.Println("execve:\t", prog.GetFd())
+			// log.Debug("execve:\t", prog.GetFd())
 		}
 	}
 	t.containers.PopulateContainersBpfMap(t.bpfModule)
@@ -517,6 +517,7 @@ func (t *Ctrace) initBPF() error {
 		if !ok {
 			continue
 		}
+		// log.Debug("event\t", event)
 		for _, probe := range event.Probes {
 			if probe.attach == sysCall {
 				// Already handled by raw_syscalls tracepoints
@@ -526,7 +527,7 @@ func (t *Ctrace) initBPF() error {
 			if err != nil {
 				return fmt.Errorf("error getting program %s: %v", probe.fn, err)
 			}
-			// log.Debug("got program", probe.fn)
+			log.Debug("got program\t", probe.fn)
 			if probe.attach == rawTracepoint && !supportRawTracepoints {
 				// We fallback to regular tracepoint in case kernel doesn't support raw tracepoints (< 4.17)
 				probe.attach = tracepoint
@@ -547,7 +548,7 @@ func (t *Ctrace) initBPF() error {
 				return fmt.Errorf("error attaching event %s: %v", probe.event, err)
 			}
 			if !event.EssentialEvent {
-				log.Debug("attached program", probe.event, probe.fn, probe.attach)
+				log.Debug("attached not EssentialEvent program\t", probe.event, probe.fn, probe.attach)
 			}
 		}
 	}
