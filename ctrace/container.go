@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,9 +13,10 @@ import (
 	"text/tabwriter"
 	"time"
 
-	bpf "github.com/aquasecurity/libbpfgo"
-
 	dockerContext "context"
+
+	bpf "github.com/aquasecurity/libbpfgo"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
@@ -171,7 +171,7 @@ func (c *Containers) CgroupLookupUpdate(cgroupId uint64) error {
 // add cgroupId with a matching container id, extracted from path
 func (c *Containers) CgroupUpdate(cgroupId uint64, path string) (CgroupInfo, error) {
 	info := CgroupInfo{Path: path}
-	// log.Println(cgroupId, path) //40 /sys/fs/cgroup/cpuset
+	// log.Debug(cgroupId, path) //40 /sys/fs/cgroup/cpuset
 
 	for _, pc := range strings.Split(path, "/") {
 		if len(pc) < 64 {
@@ -183,7 +183,7 @@ func (c *Containers) CgroupUpdate(cgroupId uint64, path string) (CgroupInfo, err
 		}
 		info.ContainerId = containerId
 		info.Runtime = runtime
-		// log.Println("CgroupUpdate", path, info.ContainerId, info.Runtime)
+		// log.Debug("CgroupUpdate", path, info.ContainerId, info.Runtime)
 	}
 
 	c.cgroups[uint32(cgroupId)] = info
@@ -325,7 +325,7 @@ func (c *Containers) PopulateContainersBpfMap(bpfModule *bpf.Module) error {
 			state := containerExisted
 			// 容器cgroupIdLsb的状态state
 			err = containersMap.Update(cgroupIdLsb, state)
-			log.Println("cgroupIdLsb:", cgroupIdLsb)
+			log.Debug("cgroupIdLsb:", cgroupIdLsb)
 		}
 	}
 

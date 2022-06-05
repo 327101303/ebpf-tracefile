@@ -9,6 +9,9 @@ import (
 	"io"
 	"os"
 	"text/template"
+	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 type eventPrinter interface {
@@ -55,7 +58,7 @@ func newEventPrinter(kind string, out io.WriteCloser, err io.WriteCloser) (event
 
 func newEvent(ctx context, argMetas []ArgMeta, args []interface{}) (Event, error) {
 	e := Event{
-		Timestamp:       float64(ctx.Ts) / 1000000.0,
+		Timestamp:       int(ctx.Ts),
 		ProcessID:       int(ctx.Pid),
 		ThreadID:        int(ctx.Tid),
 		ParentProcessID: int(ctx.Ppid),
@@ -90,14 +93,25 @@ type tableEventPrinter struct {
 func (p tableEventPrinter) Init() error { return nil }
 
 func (p tableEventPrinter) Preamble() {
-	fmt.Fprintf(p.out, "%-14s %-16s %-6s %-16s %-7s %-7s %-16s %-16s %s", "TIME(s)", "UTS_NAME", "UID", "COMM", "PID", "TID", "RET", "EVENT", "ARGS")
+	fmt.Fprintf(p.out, "%-16s %-16s %-6s %-16s %-7s %-7s %-16s %-16s %s", "TIME(s)", "CONTAINER ID", "UID", "COMM", "PID", "TID", "RET", "EVENT", "ARGS")
 	// fmt.Fprintf(p.out, "%-14s %-6s %-16s %-7s %-7s %-16s %-20s %s", "TIME(s)", "UID", "COMM", "PID", "TID", "RET", "EVENT", "ARGS")
 	fmt.Fprintln(p.out)
 }
 
 func (p tableEventPrinter) Print(event Event) {
+	// 时间戳先这样临时解决
+	var ts unix.Timespec
+	unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts)
+	startTime := ts.Nano()
+	bootTime := time.Now().UnixNano() - startTime
+	ut := time.Unix(0, int64(event.Timestamp+int(bootTime)))
+	// if p.relativeTS {
+	// ut = ut.UTC()
+	// }
+	// log.Debug(ut)
+	timestamp := fmt.Sprintf("%02d:%02d:%02d:%06d", ut.Hour(), ut.Minute(), ut.Second(), ut.Nanosecond()/1000)
 	// fmt.Fprintf(p.out, "%-14f %-16s %-12d %-12d %-6d %-16s %-7d/%-7d %-7d/%-7d %-7d/%-7d %-16d %-20s ", event.Timestamp, event.HostName, event.MountNS, event.PIDNS, event.UserID, event.ProcessName, event.ProcessID, event.HostProcessID, event.ThreadID, event.HostThreadID, event.ParentProcessID, event.ParentProcessID, event.ReturnValue, event.EventName)
-	fmt.Fprintf(p.out, "%-14f %-16s %-6d %-16s %-7d %-7d %-16d %-16s ", event.Timestamp, event.HostName, event.UserID, event.ProcessName, event.ProcessID, event.ThreadID, event.ReturnValue, event.EventName)
+	fmt.Fprintf(p.out, "%-16s %-16s %-6d %-16s %-7d %-7d %-16d %-16s ", timestamp, event.HostName, event.UserID, event.ProcessName, event.ProcessID, event.ThreadID, event.ReturnValue, event.EventName)
 	// fmt.Fprintf(p.out, "%-14f %-16s %-6d %-16s %-7d %-7d %-16d %-20s ", event.Timestamp, event.HostName, event.UserID, event.ProcessName, event.ProcessID, event.ThreadID, event.ReturnValue, event.EventName)
 	// fmt.Fprintf(p.out, "%-14f %-6d %-16s %-7d %-7d %-16d %-20s ", event.Timestamp, event.UserID, event.ProcessName, event.ProcessID, event.ThreadID, event.ReturnValue, event.EventName)
 	for i, arg := range event.Args {

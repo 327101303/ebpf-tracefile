@@ -26,12 +26,13 @@ var traceCmd = &cli.Command{
 		&cli.StringSliceFlag{
 			Name:  "comm",
 			Value: nil,
-			Usage: "only trace events from ls command",
+			Usage: "only trace events from comm command. Example: trace --comm ls,sh",
 		},
 		&cli.StringSliceFlag{
-			Name:  "exclude-comm",
-			Value: nil,
-			Usage: "do not trace events from ls command",
+			Name:    "exclude-comm",
+			Aliases: []string{"ecomm"},
+			Value:   nil,
+			Usage:   "don't trace events from comm command. Example: trace -ecomm ls,sh",
 		},
 		&cli.StringSliceFlag{
 			Name:  "set",
@@ -39,9 +40,10 @@ var traceCmd = &cli.Command{
 			Usage: "field 'set' selects a set of events to trace according to predefined sets.",
 		},
 		&cli.StringSliceFlag{
-			Name:  "exclude-set",
-			Value: nil,
-			Usage: "field 'exclude-set' selects a set of events not to trace according to predefined sets.",
+			Name:    "exclude-set",
+			Aliases: []string{"eset"},
+			Value:   nil,
+			Usage:   "field 'exclude-set' selects a set of events not to trace according to predefined sets.",
 		},
 	},
 

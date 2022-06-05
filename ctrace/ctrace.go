@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -20,6 +19,7 @@ import (
 	"unsafe"
 
 	bpf "github.com/aquasecurity/libbpfgo"
+	log "github.com/sirupsen/logrus"
 )
 
 // CtraceConfig is a struct containing user defined configuration of ctrace
@@ -308,7 +308,7 @@ func (t *Ctrace) populateBPFMaps() error {
 		sys32to64BPFMap.Update(event.ID32Bit, event.ID)
 	}
 
-	log.Println("config ready to populated")
+	log.Debug("config ready to populated")
 	// Initialize config and pids maps
 	bpfConfigMap, _ := t.bpfModule.GetMap("config_map")
 	bpfConfigMap.Update(uint32(configDetectOrigSyscall), 0)
@@ -389,7 +389,7 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 	}
 	outf := os.Stdout
 
-	log.Println("New: events path: ", t.config.EventsPath)
+	log.Debug("New: events path: ", t.config.EventsPath)
 	if t.config.EventsPath != "" {
 		dir := filepath.Dir(t.config.EventsPath)
 		os.MkdirAll(dir, 0755)
@@ -398,11 +398,11 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 		if err != nil {
 			return nil, err
 		}
-		log.Println("New: set the outf by events path")
+		log.Debug("New: set the outf by events path")
 	}
 
 	errf := os.Stderr
-	log.Println("New: errors path: ", t.config.ErrorsPath)
+	log.Debug("New: errors path: ", t.config.ErrorsPath)
 	if t.config.ErrorsPath != "" {
 		dir := filepath.Dir(t.config.ErrorsPath)
 		os.MkdirAll(dir, 0755)
@@ -411,23 +411,23 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 		if err != nil {
 			return nil, err
 		}
-		log.Println("New: set the errf by events path")
+		log.Debug("New: set the errf by events path")
 	}
 
-	log.Println("New: set printer")
+	log.Debug("New: set printer")
 	t.printer, err = newEventPrinter(t.config.OutputFormat, outf, errf)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Println("New: set containers")
+	log.Debug("New: set containers")
 	c := InitContainers()
 	if err := c.Populate(); err != nil {
 		return nil, fmt.Errorf("error initializing containers: %v", err)
 	}
 	t.containers = c
 
-	log.Println("New: set eventsToTrace")
+	log.Debug("New: set eventsToTrace")
 	t.eventsToTrace = make(map[int32]bool, len(t.config.Filter.EventsToTrace))
 	for _, e := range t.config.Filter.EventsToTrace {
 		// Map value is true iff events requested by the user
@@ -447,7 +447,7 @@ func New(cfg CtraceConfig) (*Ctrace, error) {
 	t.EncParamName[0] = make(map[string]argTag)
 	t.DecParamName[1] = make(map[argTag]ArgMeta)
 	t.EncParamName[1] = make(map[string]argTag)
-	log.Println("New: ready to init BPF")
+	log.Debug("New: ready to init BPF")
 	err = t.initBPF()
 	if err != nil {
 		t.Close()
@@ -510,8 +510,8 @@ func (t *Ctrace) initBPF() error {
 		return fmt.Errorf("error populating ebpf map, %v", err)
 	}
 
-	log.Println("initBPF: attaching BPF probs")
-	log.Println("len eventsToTrace:", len(t.eventsToTrace))
+	log.Debug("initBPF: attaching BPF probs")
+	log.Debug("len eventsToTrace:", len(t.eventsToTrace))
 	for e, _ := range t.eventsToTrace {
 		event, ok := EventsIDToEvent[e]
 		if !ok {
@@ -526,11 +526,11 @@ func (t *Ctrace) initBPF() error {
 			if err != nil {
 				return fmt.Errorf("error getting program %s: %v", probe.fn, err)
 			}
-			// log.Println("got program", probe.fn)
+			// log.Debug("got program", probe.fn)
 			if probe.attach == rawTracepoint && !supportRawTracepoints {
 				// We fallback to regular tracepoint in case kernel doesn't support raw tracepoints (< 4.17)
 				probe.attach = tracepoint
-				log.Println("set" + probe.fn + "probe.attach from rawTracepoint to tracepoint")
+				log.Debug("set" + probe.fn + "probe.attach from rawTracepoint to tracepoint")
 			}
 			switch probe.attach {
 			case kprobe:
@@ -547,12 +547,12 @@ func (t *Ctrace) initBPF() error {
 				return fmt.Errorf("error attaching event %s: %v", probe.event, err)
 			}
 			if !event.EssentialEvent {
-				log.Println("attached program", probe.event, probe.fn, probe.attach)
+				log.Debug("attached program", probe.event, probe.fn, probe.attach)
 			}
 		}
 	}
 
-	log.Println("initBPF: set events perf buf")
+	log.Debug("initBPF: set events perf buf")
 	t.eventsChannel = make(chan []byte, 1000)
 	t.lostEvChannel = make(chan uint64)
 	t.eventsPerfMap, err = t.bpfModule.InitPerfBuf("events", t.eventsChannel, t.lostEvChannel, t.config.PerfBufferSize)
@@ -595,7 +595,7 @@ func (t *Ctrace) Run() error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	done := make(chan struct{})
-	log.Println("Run: start to print info")
+	log.Debug("Run: start to print info")
 	t.printer.Preamble()
 	t.eventsPerfMap.Start()
 	go t.processLostEvents()
@@ -605,7 +605,7 @@ func (t *Ctrace) Run() error {
 	t.printer.Epilogue(t.stats)
 	close(done)
 	t.Close()
-	log.Println("Run: ctrace closed")
+	log.Debug("Run: ctrace closed")
 	return nil
 }
 

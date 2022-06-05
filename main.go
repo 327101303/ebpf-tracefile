@@ -3,14 +3,15 @@ package main
 import (
 	"ctrace/command"
 	"fmt"
-	"log"
 	"os"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/gocapability/capability"
 	"github.com/urfave/cli/v2"
 )
 
 func main() {
+	// log.SetLevel(log.DebugLevel)
 	app := &cli.App{
 		Name:                   "ctrace",
 		Usage:                  "Trace containers using eBPF",
@@ -23,7 +24,6 @@ func main() {
 	if !isCapable() {
 		log.Fatal("Not enough privileges to run this program")
 	}
-
 	err := app.Run(os.Args)
 	if err != nil && err != command.ErrPrintAndExit {
 		log.Fatal(err)
@@ -44,4 +44,3 @@ func isCapable() bool {
 
 	return c.Get(capability.EFFECTIVE, capability.CAP_SYS_ADMIN)
 }
-
