@@ -8,6 +8,8 @@ ctrace实现了一个基于eBPF的容器跟踪工具和权限最小集分配工�
 2.  数据存储：将采集获得的数据按一定格式存储到json文件中。
 3.  权限最小集分配：使用seccomp技术根据json文件中跟踪到的系统调用来给容器分配权限。
 
+ctrace并没有采用相对比较成熟的BCC开发模式，而是使用libbpf-go进行开发，从而实现了CORE特性，摆脱了对内核版本的依赖（但仍需5.10以上的内核版本），使得eBPF程序的开发可以更加专注于功能本身而不是某个结构/函数是否随内核版本发生了改变。go语言用于用户程序开发也更易与当今云原生主流应用对接。
+
 ## 项目特点
 
 - 实现353个系统调用+3个rawTracepoint+vfs kprobe
@@ -149,9 +151,9 @@ sudo ./dist/ctrace config --set errors-path=~/ctrace_output/error.json
 
 # 参考引用
 
-- [Linux内核调试技术——kprobe使用与实现](![img](file:///C:\Users\gyq__\AppData\Roaming\Tencent\QQTempSys\%W@GJ$ACOF(TYDYECOKVDYB.png)https://blog.csdn.net/luckyapple1028/article/details/52972315)
-- [BPF之路一bpf系统调用](![img](file:///C:\Users\gyq__\AppData\Roaming\Tencent\QQTempSys\8LDO48C$8@[GWU0353$FOVS.png)https://www.anquanke.com/post/id/263803)
-- [BPF的可移植性和CO-RE (Compile Once – Run Everywhere）](![img](file:///C:\Users\gyq__\AppData\Roaming\Tencent\QQTempSys\%W@GJ$ACOF(TYDYECOKVDYB.png)https://www.cnblogs.com/charlieroro/p/14206214.html)
+- [Linux内核调试技术——kprobe使用与实现](https://blog.csdn.net/luckyapple1028/article/details/52972315)
+- [BPF之路一bpf系统调用](https://www.anquanke.com/post/id/263803)
+- [BPF的可移植性和CO-RE (Compile Once – Run Everywhere）](https://www.cnblogs.com/charlieroro/p/14206214.html)
 
 
 
